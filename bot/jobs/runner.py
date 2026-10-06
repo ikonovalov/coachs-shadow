@@ -19,6 +19,8 @@ async def run_due_jobs(
 ) -> int:
     async with session_factory() as session:
         job_ids = await due_job_ids(session, now)
+    if job_ids:
+        log.debug("%d due job(s)", len(job_ids))
     completed = 0
     for job_id in job_ids:
         async with session_factory() as session:
@@ -33,6 +35,7 @@ async def run_due_jobs(
                     await ensure_generate_job(session, now + timedelta(hours=24))
                 await session.commit()
                 completed += 1
+                log.info("job %s (%s) done, training=%s", job_id, job.kind, job.training_id)
             except Exception:
                 log.exception("job %s (%s) failed; will retry", job_id, job.kind)
                 await session.rollback()

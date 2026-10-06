@@ -84,6 +84,7 @@ class PublishService:
             await asyncio.sleep(self.send_delay)
         training.published_at = now
         await self.session.commit()
+        log.info("published training %s: %d chat(s), %d failed", training_id, len(chat_ids), len(failed))
         if not chat_ids:
             await self._warn_admins(
                 f"Тренировка {self._title(training, await self._tz())} опубликована, но подходящих чатов нет. "
@@ -120,6 +121,7 @@ class PublishService:
         if training is None or training.status != TrainingStatus.SCHEDULED or training.starts_at > now:
             return
         training.status = TrainingStatus.DONE
+        log.info("closed training %s", training_id)
         await self.session.commit()
         await self.refresh_posts(training_id)
 

@@ -9,6 +9,7 @@ class Config(BaseSettings):
     admin_ids_raw: str = Field("", validation_alias="ADMIN_IDS")
     database_url: str = "sqlite+aiosqlite:///coachs_shadow.db"
     club_timezone: str = "Europe/Moscow"
+    log_level: str = "INFO"
 
     @property
     def admin_ids(self) -> list[int]:
