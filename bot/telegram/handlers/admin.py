@@ -13,6 +13,7 @@ from bot.core.settings import get_setting, set_setting, validate_setting
 from bot.schedule.models import Level
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers.picker import on_pick, start_picker
+from bot.telegram.menu import ADMIN_MENU
 from bot.telegram.states import AdminInput
 from bot.telegram.ui import markup, restore_form, safe_edit, take_form
 from bot.users.models import User
@@ -22,12 +23,6 @@ router = Router()
 router.callback_query.filter(F.message.chat.type == "private")  # admin menus live in private only
 
 
-ADMIN_MENU = markup(
-    [("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins")],
-    [("🎚 Уровни", "ad:levels"), ("💬 Чаты", "ch:list")],
-    [("🚲 Парк инвентаря", "ad:park")],
-    [("🔗 Приглашение тренера", "ad:invite"), ("⚙️ Настройки", "ad:settings")],
-)
 SETTING_LABELS = {
     "publish_window_h": "За сколько часов публиковать пост",
     "reminder_h": "За сколько часов напоминать в личку",
