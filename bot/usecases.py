@@ -5,7 +5,6 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.core.errors import InvalidAction
 from bot.core.messenger import Messenger
 from bot.participation.models import ParticipationStatus
 from bot.participation.service import JoinOutcome, ParticipationService
@@ -63,10 +62,6 @@ async def update_series(
 async def update_training(
     session: AsyncSession, messenger: Messenger, actor: User, training_id: int, edit: TrainingEdit, now: datetime
 ) -> Training:
-    if edit.capacity is not None:
-        going = await ParticipationService(session).going_count(training_id)
-        if edit.capacity < going:
-            raise InvalidAction(f"Уже записано {going} — лимит не может быть меньше")
     training = await ScheduleService(session).update_training(actor, training_id, edit, now)
     await PublishService(session, messenger).refresh_posts(training_id)
     return training

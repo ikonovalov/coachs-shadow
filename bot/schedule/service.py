@@ -10,7 +10,7 @@ from bot.core.permissions import Role, can_create_for_levels, can_manage_trainin
 from bot.core.settings import get_setting
 from bot.jobs.queue import JobKind, cancel_for_training, delete_for_training, enqueue
 from bot.schedule.models import CancelReason, Chat, Level, Training, TrainingKind, TrainingSeries, TrainingStatus
-from bot.schedule.queries import lead_chat_ids, target_chat_ids, trainer_level_ids
+from bot.schedule.queries import can_manage, going_count, lead_chat_ids, target_chat_ids, trainer_level_ids
 from bot.schedule.recurrence import occurrences
 from bot.users.models import User
 
@@ -159,14 +159,7 @@ class ScheduleService:
     # ---- cancel ----
 
     async def can_manage(self, actor: User, training: Training) -> bool:
-        if actor.role == Role.ADMIN:
-            return True
-        return can_manage_training(
-            actor,
-            training.trainer_id,
-            set(await target_chat_ids(self.session, training)),
-            await lead_chat_ids(self.session, actor.telegram_id),
-        )
+        return await can_manage(self.session, actor, training)
 
     async def cancel(self, actor: User, training_ids: list[int], now: datetime) -> list[Training]:
         """Cancel several trainings atomically: validate all first, then mutate."""
@@ -243,6 +236,10 @@ class ScheduleService:
                 raise InvalidAction("Укажите место тренировки")
         if edit.capacity is not None and edit.capacity < 1:
             raise InvalidAction("Лимит мест должен быть больше нуля")
+        if edit.capacity is not None and not edit.clear_capacity:
+            going = await going_count(self.session, training_id)
+            if edit.capacity < going:
+                raise InvalidAction(f"Уже записано {going} — лимит не может быть меньше")
         if edit.place is not None:
             training.place = edit.place.strip()
         if edit.description is not None:

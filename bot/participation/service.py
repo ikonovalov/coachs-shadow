@@ -9,7 +9,7 @@ from bot.core.db import UTCDateTime
 from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.participation.models import Participation, ParticipationStatus
 from bot.schedule.models import Training, TrainingStatus
-from bot.schedule.service import ScheduleService
+from bot.schedule.queries import can_manage, going_count
 from bot.users.models import User
 
 
@@ -47,7 +47,7 @@ class ParticipationService:
         self, actor: User, training_id: int, user_id: int, now: datetime, *, allow_over_limit: bool = False
     ) -> JoinOutcome:
         training = await self._open_training(training_id, now)
-        if not await ScheduleService(self.session).can_manage(actor, training):
+        if not await can_manage(self.session, actor, training):
             raise PermissionDenied("Нет прав на эту тренировку")
         if await self.session.get(User, user_id) is None:
             raise NotFound("Пользователь не найден")
@@ -58,7 +58,7 @@ class ParticipationService:
 
     async def manual_remove(self, actor: User, training_id: int, user_id: int, now: datetime) -> bool:
         training = await self._open_training(training_id, now)
-        if not await ScheduleService(self.session).can_manage(actor, training):
+        if not await can_manage(self.session, actor, training):
             raise PermissionDenied("Нет прав на эту тренировку")
         removed = await self.session.execute(  # conditional: of two concurrent taps only one removes
             update(Participation)
@@ -73,11 +73,7 @@ class ParticipationService:
         return removed.rowcount == 1
 
     async def going_count(self, training_id: int) -> int:
-        return await self.session.scalar(
-            select(func.count())
-            .select_from(Participation)
-            .where(Participation.training_id == training_id, Participation.status == ParticipationStatus.GOING)
-        )
+        return await going_count(self.session, training_id)
 
     async def list_participants(self, training_id: int) -> tuple[list[User], list[User]]:
         rows = await self.session.execute(

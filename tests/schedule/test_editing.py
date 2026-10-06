@@ -177,6 +177,25 @@ async def test_edit_single_training_rules(session):
         await svc.update_training(admin, t.id, TrainingEdit(place="X"), utc(10, 13, 17))  # уже началась
 
 
+async def test_capacity_cannot_drop_below_signed_up_and_count_is_hidden_from_strangers(session):
+    from bot.participation.models import Participation
+
+    admin, level, svc, series = await weekly(session)
+    t = await session.scalar(select(Training).where(Training.starts_at == utc(10, 13)))
+    for uid in (1, 2, 3):
+        await add_user(session, uid)
+        session.add(Participation(training_id=t.id, user_id=uid, status="going", updated_at=T0))
+    await session.commit()
+    member = await add_user(session, 7, "member")
+    with pytest.raises(PermissionDenied):  # права проверяются раньше, число записавшихся не раскрывается
+        await svc.update_training(member, t.id, TrainingEdit(capacity=1), T1)
+    with pytest.raises(InvalidAction, match="Уже записано 3"):
+        await svc.update_training(admin, t.id, TrainingEdit(capacity=2), T1)
+    assert t.capacity == 5
+    await svc.update_training(admin, t.id, TrainingEdit(capacity=3), T1)
+    assert t.capacity == 3
+
+
 # ---------- списки ----------
 
 async def test_allowed_levels(session):
