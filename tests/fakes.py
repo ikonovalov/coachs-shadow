@@ -41,3 +41,16 @@ class FakeMessenger:
             return False
         self.notifications.append((user_id, text))
         return True
+
+
+class FakeMembership:
+    def __init__(self, members: set[tuple[int, int]] | None = None) -> None:
+        self.members = members or set()
+        self.calls = 0
+        self.failing_chats: set[int] = set()
+
+    async def is_member(self, chat_id: int, user_id: int) -> bool:
+        self.calls += 1
+        if chat_id in self.failing_chats:
+            raise RuntimeError("telegram error")
+        return (chat_id, user_id) in self.members
