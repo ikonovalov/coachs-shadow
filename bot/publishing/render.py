@@ -56,6 +56,7 @@ def render_card(card: CardData, tz: ZoneInfo) -> tuple[str, Keyboard]:
             keyboard = [
                 [Button("✅ Пойду", f"join:{tid}"), Button("❌ Не пойду", f"decline:{tid}")],
                 [Button("👥 Участники", f"who:{tid}")],
+                [Button("🚲 Инвентарь", f"inv:{tid}")],
             ]
         else:
             opens = card.opens_at.astimezone(tz)
