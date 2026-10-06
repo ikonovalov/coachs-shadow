@@ -42,3 +42,8 @@ async def on_bind(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     await service.bind_chat(user, cb.message.chat.id, cb.message.chat.title or "", level.name)
     await safe_edit(cb.message, f"Чат привязан к уровню «{level.name}»")
     await cb.answer()
+
+
+@router.callback_query(F.data.startswith(BIND_PREFIX))
+async def on_bind_stale(cb: CallbackQuery) -> None:
+    await cb.answer()  # catch-all роутера: кнопка привязки вне группы

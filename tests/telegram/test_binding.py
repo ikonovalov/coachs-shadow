@@ -98,3 +98,9 @@ async def test_bind_button_with_garbage_id_is_not_found(session):
     cb = FakeCallback("bind:abc", FakeMessage(**GROUP))
     with pytest.raises(NotFound):
         await binding.on_bind(cb, session, adm)
+
+
+async def test_bind_button_outside_a_group_is_just_answered():
+    cb = FakeCallback("bind:1", FakeMessage())  # личка: привязка там не работает, но спиннер надо снять
+    await binding.on_bind_stale(cb)
+    assert cb.answers == [(None, False)]
