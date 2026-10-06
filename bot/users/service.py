@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.permissions import Role
@@ -37,3 +38,16 @@ class UserService:
             elif user.role != Role.ADMIN:
                 user.role = Role.ADMIN
         await self.session.commit()
+
+    async def search(self, query: str, limit: int = 8, roles: set[str] | None = None) -> list[User]:
+        needle = query.strip().casefold()
+        rows = await self.session.scalars(select(User).order_by(User.name))
+        found: list[User] = []
+        for user in rows:
+            if roles is not None and user.role not in roles:
+                continue
+            if needle in user.name.casefold():
+                found.append(user)
+                if len(found) >= limit:
+                    break
+        return found
