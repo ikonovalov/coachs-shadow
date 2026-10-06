@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from bot.inventory.models import InventoryItem
 from bot.schedule.models import Chat, Level, Training, TrainingSeries, TrainingStatus
 from bot.users.models import ChatTrainer, User
 
@@ -75,3 +76,10 @@ async def add_training(
     session.add(training)
     await session.commit()
     return training
+
+
+async def add_item(session, kind, label, **params) -> InventoryItem:
+    item = InventoryItem(kind=kind, label=label, **params)
+    session.add(item)
+    await session.commit()
+    return item

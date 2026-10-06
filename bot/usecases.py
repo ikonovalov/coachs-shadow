@@ -2,18 +2,83 @@
 for state-changing actions that must also update posts."""
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.messenger import Messenger
+from bot.core.settings import get_setting
+from bot.inventory.models import InventoryItem, InventoryOrder
+from bot.inventory.service import InventoryService
 from bot.participation.models import ParticipationStatus
 from bot.participation.service import JoinOutcome, ParticipationService
+from bot.publishing.render import format_when
 from bot.publishing.service import PublishService
 from bot.schedule.models import Training
 from bot.schedule.service import ReplacedTraining, ScheduleService, SeriesInput, TrainingEdit
 from bot.users.models import User
 
 log = logging.getLogger(__name__)
+
+
+async def _cancel_participant_orders(
+    session: AsyncSession, messenger: Messenger, training_id: int, user_id: int
+) -> None:
+    """Участник больше не идёт: его заказы инвентаря отменяются, единицы сразу свободны."""
+    orders = await InventoryService(session).cancel_for_participant(training_id, user_id)
+    if not orders:
+        return
+    item_ids = [o.item_id for o in orders]
+    labels = list(
+        await session.scalars(
+            select(InventoryItem.label).where(InventoryItem.id.in_(item_ids)).order_by(InventoryItem.id)
+        )
+    )
+    log.info("cancelled %d inventory orders training=%s user=%s", len(orders), training_id, user_id)
+    await _notify_quietly(messenger, user_id, "Заказы инвентаря на тренировку отменены: " + ", ".join(labels))
+
+
+async def _notify_quietly(messenger: Messenger, user_id: int, text: str) -> None:
+    """Уведомление после уже закоммиченного изменения: сбой доставки логируется и не прерывает use case
+    (обновление постов и остальные уведомления должны выполниться)."""
+    try:
+        delivered = await messenger.notify(user_id, text)
+    except Exception:
+        log.warning("notify to %s failed", user_id, exc_info=True)
+        return
+    if not delivered:
+        log.info("notice not delivered to %s", user_id)
+
+
+async def set_item_active(
+    session: AsyncSession, messenger: Messenger, actor: User, item_id: int, active: bool, now: datetime
+) -> tuple[InventoryItem, list[InventoryOrder]]:
+    """Вывод единицы из парка / возврат. При выводе её активные заказы на будущие тренировки отменяются,
+    каждому участнику приходит уведомление. Возврат больше ничего не меняет. Права (только админ) — в сервисе."""
+    inventory = InventoryService(session)
+    item = await inventory.set_active(actor, item_id, active)
+    if active:
+        return item, []
+    # новые заказы на выведенную единицу уже невозможны (_take_item проверяет active), отменяем существующие
+    cancelled = await inventory.cancel_for_item(actor, item_id, now)
+    log.info("item %s deactivated by %s, cancelled orders %s", item_id, actor.telegram_id, [o.id for o in cancelled])
+    if cancelled:
+        tz = ZoneInfo(await get_setting(session, "club_timezone"))
+        trainings = {
+            t.id: t for t in await session.scalars(
+                select(Training).where(Training.id.in_({o.training_id for o in cancelled}))
+            )
+        }
+        for order in cancelled:
+            training = trainings[order.training_id]
+            when = format_when(training.starts_at, training.duration_min, tz)
+            await _notify_quietly(
+                messenger, order.user_id,
+                f"Единицу «{item.label}» вывели из парка, поэтому её заказ на тренировку {when} отменён. "
+                "Подобрать замену можно кнопкой «🚲 Инвентарь» на карточке тренировки.",
+            )
+    return item, cancelled
 
 
 async def join_training(
@@ -32,6 +97,7 @@ async def decline_training(
     previous = await ParticipationService(session).decline(training_id, user_id, now)
     log.info("decline training=%s user=%s (was %s)", training_id, user_id, previous)
     if previous == ParticipationStatus.GOING:
+        await _cancel_participant_orders(session, messenger, training_id, user_id)
         await PublishService(session, messenger).refresh_posts(training_id)
     return previous
 
@@ -42,7 +108,9 @@ async def cancel_trainings(
     cancelled = await ScheduleService(session).cancel(actor, training_ids, now)
     log.info("cancelled trainings %s by user=%s", [t.id for t in cancelled], actor.telegram_id)
     publisher = PublishService(session, messenger)
+    inventory = InventoryService(session)
     for training in cancelled:
+        await inventory.cancel_for_training(training.id)
         await publisher.announce_cancelled(training.id)
     return cancelled
 
@@ -52,7 +120,9 @@ async def update_series(
 ) -> list[ReplacedTraining]:
     replaced = await ScheduleService(session).update_series(actor, series_id, data, now)
     publisher = PublishService(session, messenger)
+    inventory = InventoryService(session)
     for item in replaced:
+        await inventory.cancel_for_training(item.old_id)
         if item.new_id is not None:
             await publisher.publish(item.new_id, now)  # сразу, чтобы в уведомлении была ссылка на пост
         await publisher.announce_replaced(item.old_id, item.new_id)
@@ -88,6 +158,7 @@ async def manual_remove_participant(
     removed = await ParticipationService(session).manual_remove(actor, training_id, user_id, now)
     log.info("manual remove training=%s user=%s by=%s -> %s", training_id, user_id, actor.telegram_id, removed)
     if removed:
+        await _cancel_participant_orders(session, messenger, training_id, user_id)
         publisher = PublishService(session, messenger)
         await publisher.refresh_posts(training_id)
         await publisher.notify_manual_change(training_id, user_id, added=False)

@@ -12,7 +12,9 @@ from bot.core.logging_setup import setup_logging
 from bot.bootstrap import bootstrap
 from bot.jobs.runner import scheduler_loop
 from bot.telegram.errors import on_domain_error
-from bot.telegram.handlers import admin, chats, common, participation, picker, schedule, trainer, trainer_forms
+from bot.telegram.handlers import (
+    admin, chats, common, inventory, my, park, participation, picker, profile, schedule, trainer, trainer_forms,
+)
 from bot.telegram.membership import AiogramMembership
 from bot.telegram.messenger import AiogramMessenger
 from bot.telegram.middleware import AccessMiddleware, DbSessionMiddleware, clear_state_on_command
@@ -37,11 +39,12 @@ async def main() -> None:
     dp.message.middleware(access)
     dp.callback_query.middleware(access)
     dp.errors.register(on_domain_error, ExceptionTypeFilter(DomainError))
-    # trainer_forms first: it handles "tr:new:*", which the trainer router's "tr:" catch-all would swallow.
+    # trainer_forms first: it handles "tr:new:*", which the trainer router's "tr:" catch-all would swallow;
+    # inventory before trainer for the same reason ("tr:inv:*"); park before admin ("ad:park", "ad:pk*" vs "ad:").
     # Each router ends with a stateless catch-all for its own "<prefix>:" callbacks (expired buttons).
     dp.include_routers(
-        trainer_forms.router, common.router, picker.router, admin.router, chats.router, schedule.router, trainer.router,
-        participation.router,
+        trainer_forms.router, common.router, picker.router, park.router, admin.router, chats.router, profile.router,
+        my.router, inventory.router, schedule.router, trainer.router, participation.router,
     )
 
     scheduler = asyncio.create_task(scheduler_loop(session_factory, messenger))

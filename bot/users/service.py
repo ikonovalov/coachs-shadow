@@ -1,8 +1,10 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.core.errors import InvalidAction
 from bot.core.permissions import Role
 from bot.users.models import User
+from bot.users.profile import PROFILE_FIELDS
 
 
 class UserService:
@@ -27,6 +29,14 @@ class UserService:
                 user.started_bot = True
             if telegram_id in admin_ids:
                 user.role = Role.ADMIN
+        await self.session.commit()
+        return user
+
+    async def update_profile(self, user: User, field: str, raw: str) -> User:
+        parser = PROFILE_FIELDS.get(field)
+        if parser is None:
+            raise InvalidAction("Это поле профиля нельзя изменить")
+        setattr(user, field, parser(raw))  # сначала разбор: при ошибке профиль не меняется
         await self.session.commit()
         return user
 

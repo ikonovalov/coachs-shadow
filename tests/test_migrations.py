@@ -25,6 +25,7 @@ def test_upgrade_head_on_empty_db(tmp_path, monkeypatch):
         "users", "levels", "chats", "chat_trainers", "training_series", "trainings",
         "series_levels", "training_levels", "participations", "training_posts",
         "scheduled_jobs", "settings", "invites",
+        "inventory_items", "inventory_orders", "cleat_compat",
     } <= tables
     assert "WHERE" in lead_sql.upper()
     assert "cancel_reason" in cols

@@ -24,3 +24,21 @@ class Picker(StatesGroup):
 
 class AdminInput(StatesGroup):
     value = State()  # data: purpose ("add_level" | "setting:<key>")
+
+
+class ProfileInput(StatesGroup):
+    value = State()  # data: field ("height_cm" | "foot_eu")
+
+
+class InventoryFlow(StatesGroup):
+    kinds = State()
+    pedal = State()
+    shoes = State()
+    cleat = State()
+    profile = State()  # текстовый ввод роста/размера ноги; data: ask
+    helmet = State()
+    review = State()
+
+
+class ParkInput(StatesGroup):
+    line = State()  # data: kind
