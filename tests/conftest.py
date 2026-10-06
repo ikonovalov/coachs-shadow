@@ -8,6 +8,8 @@ from bot.core.db import Base, make_engine, make_session_factory
 async def engine(tmp_path):
     eng = make_engine(f"sqlite+aiosqlite:///{(tmp_path / 'test.db').as_posix()}")
     async with eng.begin() as conn:
+        await conn.exec_driver_sql("PRAGMA journal_mode=MEMORY")
+        await conn.exec_driver_sql("PRAGMA synchronous=OFF")
         await conn.run_sync(Base.metadata.create_all)
     yield eng
     await eng.dispose()
