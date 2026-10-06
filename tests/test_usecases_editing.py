@@ -43,7 +43,10 @@ async def test_series_edit_replaces_publishes_new_and_notifies_with_link(session
     new = await session.get(Training, result[0].new_id)
     assert new.published_at is not None  # новая опубликована сразу
     msg = [text for uid, text in messenger.notifications if uid == 1][-1]
-    assert "изменена" in msg and "https://t.me/c/1234567890/" in msg
+    old_post_id, new_post_id = messenger.sent[0].message_id, messenger.sent[1].message_id
+    assert old_post_id != new_post_id
+    assert "изменена" in msg and f"https://t.me/c/1234567890/{new_post_id}" in msg
+    assert f"https://t.me/c/1234567890/{old_post_id}" not in msg
 
 
 async def test_training_edit_refreshes_the_post_and_protects_going_users(session, messenger):

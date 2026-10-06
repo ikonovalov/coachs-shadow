@@ -47,7 +47,10 @@ async def test_announce_replaced_notifies_with_link_to_the_new_post(session, mes
     await session.commit()
     await svc.announce_replaced(old.id, new.id)
     (uid, text), = [n for n in messenger.notifications if n[0] == 1]
-    assert "изменена" in text and "https://t.me/c/1234567890/" in text
+    old_post_id, new_post_id = messenger.sent[0].message_id, messenger.sent[1].message_id
+    assert old_post_id != new_post_id
+    assert "изменена" in text and f"https://t.me/c/1234567890/{new_post_id}" in text
+    assert f"https://t.me/c/1234567890/{old_post_id}" not in text
     assert "Отменена" in messenger.edits[-1].text
 
 
