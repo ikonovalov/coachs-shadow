@@ -9,7 +9,7 @@ from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.core.permissions import Role, can_create_for_levels, can_manage_training, require_admin
 from bot.core.settings import get_setting
 from bot.jobs.queue import JobKind, cancel_for_training, enqueue
-from bot.schedule.models import Chat, Level, Training, TrainingKind, TrainingSeries, TrainingStatus
+from bot.schedule.models import CancelReason, Chat, Level, Training, TrainingKind, TrainingSeries, TrainingStatus
 from bot.schedule.queries import lead_chat_ids, target_chat_ids, trainer_level_ids
 from bot.schedule.recurrence import occurrences
 from bot.users.models import User
@@ -158,6 +158,7 @@ class ScheduleService:
             trainings.append(training)
         for training in trainings:
             training.status = TrainingStatus.CANCELLED
+            training.cancel_reason = CancelReason.USER
             await cancel_for_training(self.session, training.id, now)
         await self.session.commit()
         return trainings
