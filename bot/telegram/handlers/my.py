@@ -42,10 +42,14 @@ async def _render(session: AsyncSession, user: User) -> tuple[str, InlineKeyboar
     return render_my(entries), markup(*rows) if rows else None
 
 
-@router.message(Command("my"))
-async def cmd_my(message: Message, session: AsyncSession, user: User) -> None:
+async def send_my(message: Message, session: AsyncSession, user: User) -> None:
     text, keyboard = await _render(session, user)
     await message.answer(text, reply_markup=keyboard)
+
+
+@router.message(Command("my"))
+async def cmd_my(message: Message, session: AsyncSession, user: User) -> None:
+    await send_my(message, session, user)
 
 
 @router.callback_query(F.data.regexp(r"^my:co:\d+$"))

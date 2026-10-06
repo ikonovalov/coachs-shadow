@@ -33,10 +33,14 @@ def profile_markup():
     )
 
 
+async def send_profile(message: Message, user: User) -> None:
+    await message.answer(render_profile(user) + HINT, reply_markup=profile_markup())
+
+
 @router.message(Command("profile"))
 async def cmd_profile(message: Message, user: User, state: FSMContext) -> None:
     await state.clear()
-    await message.answer(render_profile(user) + HINT, reply_markup=profile_markup())
+    await send_profile(message, user)
 
 
 @router.callback_query(F.data.in_(set(ASK_FIELDS)))

@@ -12,8 +12,8 @@ from bot.telegram.keyboards import to_markup
 router = Router()
 
 
-@router.message(Command("schedule"), F.chat.type == "private")
-async def cmd_schedule(message: Message, session: AsyncSession, messenger: Messenger) -> None:
+async def send_schedule(message: Message, session: AsyncSession, messenger: Messenger) -> None:
+    """Общий показ расписания: его зовут и /schedule, и кнопка «📅 Расписание»."""
     trainings = await ScheduleService(session).upcoming(utcnow())
     if not trainings:
         await message.answer("Ближайших тренировок нет")
@@ -22,6 +22,11 @@ async def cmd_schedule(message: Message, session: AsyncSession, messenger: Messe
     for training in trainings:
         text, keyboard = await publisher.render(training)
         await message.answer(text, reply_markup=to_markup(keyboard))
+
+
+@router.message(Command("schedule"), F.chat.type == "private")
+async def cmd_schedule(message: Message, session: AsyncSession, messenger: Messenger) -> None:
+    await send_schedule(message, session, messenger)
 
 
 @router.callback_query(F.data == "noop")
