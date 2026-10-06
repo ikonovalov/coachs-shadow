@@ -358,19 +358,24 @@ class ScheduleService:
             window_start=now,
             window_end=horizon,
         )
-        existing = set(
-            await self.session.scalars(
+        # Одна тренировка серии на местную дату: существующая (в т.ч. отменённая пользователем) занимает
+        # свой день, даже если у серии потом сменилось время. Отменённые правкой серии день не занимают —
+        # их место как раз и должна занять замена.
+        today_start = datetime.combine(now.astimezone(tz).date(), time(0), tzinfo=tz)
+        taken_dates = {
+            starts_at.astimezone(tz).date()
+            for starts_at in await self.session.scalars(
                 select(Training.starts_at).where(
                     Training.series_id == series.id,
-                    Training.starts_at >= now,
-                    Training.starts_at < horizon,
+                    Training.starts_at >= today_start,
+                    Training.starts_at < horizon + timedelta(days=1),
                     or_(Training.cancel_reason.is_(None), Training.cancel_reason != CancelReason.SERIES_EDIT),
                 )
             )
-        )
+        }
         created: list[Training] = []
         for starts_at in starts:
-            if starts_at in existing:
+            if starts_at.astimezone(tz).date() in taken_dates:
                 continue
             training = Training(
                 series_id=series.id,

@@ -81,6 +81,29 @@ async def test_user_cancelled_training_is_not_resurrected_by_series_edit(session
     assert len(on_20) == 1 and on_20[0].status == TrainingStatus.CANCELLED
 
 
+async def test_user_cancelled_training_is_not_resurrected_by_time_change(session):
+    admin, level, svc, series = await weekly(session)
+    t20 = await session.scalar(select(Training).where(Training.starts_at == utc(10, 20)))
+    await svc.cancel(admin, [t20.id], T1)
+    await svc.update_series(admin, series.id, replace(series_to_input(series), start_time=time(18, 0)), T1)
+    on_20 = [t for t in await all_trainings(session) if t.starts_at.date() == date(2026, 10, 20)]
+    assert [(t.starts_at, t.status) for t in on_20] == [(utc(10, 20), TrainingStatus.CANCELLED)]
+    live = [t.starts_at for t in await all_trainings(session) if t.status == TrainingStatus.SCHEDULED and t.starts_at > T1]
+    assert live == [utc(10, 13, 15), utc(10, 27, 15), utc(11, 3, 15)]
+
+
+async def test_user_cancelled_training_is_not_resurrected_by_days_and_time_change(session):
+    admin, level, svc, series = await weekly(session)
+    t20 = await session.scalar(select(Training).where(Training.starts_at == utc(10, 20)))
+    await svc.cancel(admin, [t20.id], T1)
+    edit = replace(series_to_input(series), weekdays={2, 4}, start_time=time(18, 0))
+    await svc.update_series(admin, series.id, edit, T1)
+    on_20 = [t for t in await all_trainings(session) if t.starts_at.date() == date(2026, 10, 20)]
+    assert [t.status for t in on_20] == [TrainingStatus.CANCELLED]
+    live = {t.starts_at for t in await all_trainings(session) if t.status == TrainingStatus.SCHEDULED and t.starts_at > T1}
+    assert utc(10, 22, 15) in live and utc(10, 13, 15) in live
+
+
 async def test_weekday_change_leaves_published_training_without_a_pair(session):
     admin, level, svc, series = await weekly(session)
     old = await publish_directly(session, utc(10, 13))
