@@ -30,3 +30,8 @@ class Messenger(Protocol):
 
     async def notify(self, user_id: int, text: str, keyboard: Keyboard | None = None) -> bool:
         """DM a user. Returns False if it could not be delivered (never raises for that)."""
+
+
+class MembershipChecker(Protocol):
+    async def is_member(self, chat_id: int, user_id: int) -> bool:
+        """Состоит ли пользователь в чате. Не должен бросать из-за «чат недоступен» — вернуть False."""

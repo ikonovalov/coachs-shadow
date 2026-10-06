@@ -147,6 +147,42 @@ class PublishService:
 
     # ---- helpers ----
 
+    async def post_link(self, training_id: int) -> str | None:
+        post = await self.session.scalar(
+            select(TrainingPost).where(TrainingPost.training_id == training_id).order_by(TrainingPost.chat_id)
+        )
+        if post is None:
+            return None
+        chat = str(post.chat_id)
+        if not chat.startswith("-100"):  # ссылки на сообщения есть только у супергрупп
+            return None
+        return f"https://t.me/c/{chat[4:]}/{post.message_id}"
+
+    async def announce_replaced(self, old_id: int, new_id: int | None) -> None:
+        if new_id is None:
+            await self.announce_cancelled(old_id)
+            return
+        old = await self.session.get(Training, old_id)
+        if old is None:
+            return
+        await self.refresh_posts(old_id)
+        text = f"🔄 Тренировка изменена, запишитесь на обновлённую: {self._title(old, await self._tz())}"
+        link = await self.post_link(new_id)
+        if link:
+            text += f"\n{link}"
+        for user_id in await self._going_ids(old_id):
+            if not await self.messenger.notify(user_id, text):
+                log.info("replace notice not delivered to %s (bot not started?)", user_id)
+
+    async def notify_manual_change(self, training_id: int, user_id: int, added: bool) -> None:
+        training = await self.session.get(Training, training_id)
+        if training is None:
+            return
+        title = self._title(training, await self._tz())
+        text = f"✅ Тренер записал вас на тренировку: {title}" if added else f"❌ Тренер снял вас с тренировки: {title}"
+        if not await self.messenger.notify(user_id, text):
+            log.info("manual change notice not delivered to %s", user_id)
+
     @staticmethod
     def _title(training: Training, tz: ZoneInfo) -> str:
         kind = KIND_NAMES.get(training.kind, training.kind)

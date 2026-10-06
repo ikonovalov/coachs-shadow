@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import ExceptionTypeFilter
 
 from bot.core.config import Config
@@ -11,9 +12,10 @@ from bot.core.logging_setup import setup_logging
 from bot.bootstrap import bootstrap
 from bot.jobs.runner import scheduler_loop
 from bot.telegram.errors import on_domain_error
-from bot.telegram.handlers import admin, common, participation, schedule
+from bot.telegram.handlers import admin, chats, common, participation, picker, schedule, trainer, trainer_forms
+from bot.telegram.membership import AiogramMembership
 from bot.telegram.messenger import AiogramMessenger
-from bot.telegram.middleware import DbSessionMiddleware
+from bot.telegram.middleware import AccessMiddleware, DbSessionMiddleware, clear_state_on_command
 
 log = logging.getLogger(__name__)
 
@@ -27,15 +29,25 @@ async def main() -> None:
 
     bot = Bot(cfg.bot_token)
     messenger = AiogramMessenger(bot)
-    dp = Dispatcher()
+    dp = Dispatcher(storage=MemoryStorage())
     dp.update.outer_middleware(DbSessionMiddleware(session_factory, cfg.admin_ids))
+    # on the dispatcher itself, so it runs before any router: a command drops whatever form/picker/input was open
+    dp.message.outer_middleware(clear_state_on_command)
+    access = AccessMiddleware(AiogramMembership(bot), cfg.admin_ids)
+    dp.message.middleware(access)
+    dp.callback_query.middleware(access)
     dp.errors.register(on_domain_error, ExceptionTypeFilter(DomainError))
-    dp.include_routers(common.router, admin.router, schedule.router, participation.router)
+    # trainer_forms first: it handles "tr:new:*", which the trainer router's "tr:" catch-all would swallow.
+    # Each router ends with a stateless catch-all for its own "<prefix>:" callbacks (expired buttons).
+    dp.include_routers(
+        trainer_forms.router, common.router, picker.router, admin.router, chats.router, schedule.router, trainer.router,
+        participation.router,
+    )
 
     scheduler = asyncio.create_task(scheduler_loop(session_factory, messenger))
     log.info("bot started: admins=%d, timezone=%s", len(cfg.admin_ids), cfg.club_timezone)
     try:
-        await dp.start_polling(bot, messenger=messenger)
+        await dp.start_polling(bot, messenger=messenger, admin_ids=cfg.admin_ids)
     finally:
         log.info("bot stopping")
         scheduler.cancel()

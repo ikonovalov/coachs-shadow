@@ -30,3 +30,17 @@ async def test_sync_admins_creates_and_promotes(session):
     await svc.sync_admins([8, 9])
     assert (await session.get(User, 8)).role == "admin"
     assert (await session.get(User, 9)).role == "admin"
+
+
+async def test_search_is_case_insensitive_for_cyrillic_and_filters_roles(session):
+    from tests.factories import add_user
+
+    await add_user(session, 1, "member", name="Анна Петрова")
+    await add_user(session, 2, "trainer", name="Олег Анненков")
+    await add_user(session, 3, "member", name="Борис")
+    svc = UserService(session)
+    assert [u.telegram_id for u in await svc.search("АННА")] == [1]
+    assert {u.telegram_id for u in await svc.search("ан")} == {1, 2}
+    assert [u.telegram_id for u in await svc.search("ан", roles={"trainer"})] == [2]
+    assert await svc.search("zzz") == []
+    assert len(await svc.search("", limit=2)) == 2

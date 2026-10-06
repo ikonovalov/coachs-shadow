@@ -1,6 +1,10 @@
 from aiogram import BaseMiddleware
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from bot.core.db import utcnow
+from bot.core.messenger import MembershipChecker
+from bot.users.access import DENIED_TEXT, AccessService
 from bot.users.service import UserService
 
 
@@ -24,3 +28,45 @@ class DbSessionMiddleware(BaseMiddleware):
                     admin_ids=self.admin_ids,
                 )
             return await handler(event, data)
+
+
+async def clear_state_on_command(handler, event, data):
+    """Dispatcher-level outer middleware: any command ("/...") abandons an unfinished form, picker or input,
+    then falls through to its normal handler. Otherwise stray text typed later would be taken as a form value."""
+    state = data.get("state")
+    if state is not None and (getattr(event, "text", None) or "").startswith("/") and await state.get_state():
+        await state.clear()
+    return await handler(event, data)
+
+
+class AccessMiddleware(BaseMiddleware):
+    """Внутренний middleware: в личке пускает только участников клуба. Кнопки в группах — доказательство членства."""
+
+    def __init__(self, checker: MembershipChecker, admin_ids: list[int]) -> None:
+        self.checker = checker
+        self.admin_ids = admin_ids
+        self.cache: dict = {}
+
+    @staticmethod
+    def _exempt(event) -> bool:
+        text = getattr(event, "text", None) or ""
+        return text.startswith("/whoami") or text.startswith("/start trainer_")
+
+    async def __call__(self, handler, event, data):
+        chat = data.get("event_chat")
+        user = data.get("user")
+        if chat is None or user is None:
+            return await handler(event, data)
+        service = AccessService(data["session"], self.checker, self.admin_ids, self.cache)
+        if chat.type != "private":
+            if isinstance(event, CallbackQuery):
+                await service.mark_member(chat.id, user.telegram_id, utcnow())
+            return await handler(event, data)
+        if self._exempt(event):
+            return await handler(event, data)
+        if await service.can_use(user.telegram_id, utcnow()):
+            return await handler(event, data)
+        if isinstance(event, CallbackQuery):
+            await event.answer(DENIED_TEXT, show_alert=True)
+        elif isinstance(event, Message):
+            await event.answer(DENIED_TEXT)

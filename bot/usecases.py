@@ -10,7 +10,7 @@ from bot.participation.models import ParticipationStatus
 from bot.participation.service import JoinOutcome, ParticipationService
 from bot.publishing.service import PublishService
 from bot.schedule.models import Training
-from bot.schedule.service import ScheduleService
+from bot.schedule.service import ReplacedTraining, ScheduleService, SeriesInput, TrainingEdit
 from bot.users.models import User
 
 log = logging.getLogger(__name__)
@@ -45,3 +45,50 @@ async def cancel_trainings(
     for training in cancelled:
         await publisher.announce_cancelled(training.id)
     return cancelled
+
+
+async def update_series(
+    session: AsyncSession, messenger: Messenger, actor: User, series_id: int, data: SeriesInput, now: datetime
+) -> list[ReplacedTraining]:
+    replaced = await ScheduleService(session).update_series(actor, series_id, data, now)
+    publisher = PublishService(session, messenger)
+    for item in replaced:
+        if item.new_id is not None:
+            await publisher.publish(item.new_id, now)  # сразу, чтобы в уведомлении была ссылка на пост
+        await publisher.announce_replaced(item.old_id, item.new_id)
+    return replaced
+
+
+async def update_training(
+    session: AsyncSession, messenger: Messenger, actor: User, training_id: int, edit: TrainingEdit, now: datetime
+) -> Training:
+    training = await ScheduleService(session).update_training(actor, training_id, edit, now)
+    await PublishService(session, messenger).refresh_posts(training_id)
+    return training
+
+
+async def manual_add_participant(
+    session: AsyncSession, messenger: Messenger, actor: User, training_id: int, user_id: int, now: datetime,
+    allow_over_limit: bool = False,
+) -> JoinOutcome:
+    outcome = await ParticipationService(session).manual_add(
+        actor, training_id, user_id, now, allow_over_limit=allow_over_limit
+    )
+    log.info("manual add training=%s user=%s by=%s -> %s", training_id, user_id, actor.telegram_id, outcome)
+    if outcome == JoinOutcome.JOINED:
+        publisher = PublishService(session, messenger)
+        await publisher.refresh_posts(training_id)
+        await publisher.notify_manual_change(training_id, user_id, added=True)
+    return outcome
+
+
+async def manual_remove_participant(
+    session: AsyncSession, messenger: Messenger, actor: User, training_id: int, user_id: int, now: datetime
+) -> bool:
+    removed = await ParticipationService(session).manual_remove(actor, training_id, user_id, now)
+    log.info("manual remove training=%s user=%s by=%s -> %s", training_id, user_id, actor.telegram_id, removed)
+    if removed:
+        publisher = PublishService(session, messenger)
+        await publisher.refresh_posts(training_id)
+        await publisher.notify_manual_change(training_id, user_id, added=False)
+    return removed

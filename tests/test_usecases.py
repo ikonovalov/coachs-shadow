@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import pytest
 
-from bot.core.errors import PermissionDenied
+from bot.core.errors import InvalidAction, PermissionDenied
 from bot.participation.service import JoinOutcome
 from bot.publishing.service import PublishService
 from bot.usecases import cancel_trainings, decline_training, join_training
@@ -64,3 +64,21 @@ async def test_cancel_by_stranger_changes_nothing(session, messenger):
     with pytest.raises(PermissionDenied):
         await cancel_trainings(session, messenger, member, [t.id], NOW)
     assert len(messenger.edits) == edits
+
+
+async def test_double_tap_on_cancel_announces_once(session, session_factory, messenger):
+    import asyncio
+
+    t = await published_training(session, messenger, capacity=5)
+    admin = await add_user(session, 98, "admin")
+    await add_user(session, 1)
+    await join_training(session, messenger, t.id, 1, NOW)
+
+    async def tap():
+        async with session_factory() as s:
+            return await cancel_trainings(s, messenger, admin, [t.id], NOW)
+
+    results = await asyncio.gather(tap(), tap(), return_exceptions=True)
+    assert sum(isinstance(r, list) for r in results) == 1
+    assert sum(isinstance(r, InvalidAction) for r in results) == 1
+    assert len([uid for uid, text in messenger.notifications if "отменена" in text]) == 1

@@ -1,6 +1,6 @@
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import BigInteger, Column, Date, ForeignKey, Integer, String, Table, Text, Time, UniqueConstraint
+from sqlalchemy import BigInteger, Column, Date, ForeignKey, Integer, String, Table, Text, Time, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bot.core.db import Base, UTCDateTime
@@ -17,6 +17,11 @@ class TrainingStatus:
     SCHEDULED = "scheduled"
     CANCELLED = "cancelled"
     DONE = "done"
+
+
+class CancelReason:
+    USER = "user"
+    SERIES_EDIT = "series_edit"
 
 
 class Level(Base):
@@ -73,7 +78,16 @@ class Training(Base):
     """Snapshot of the series fields, so editing a series never rewrites existing trainings."""
 
     __tablename__ = "trainings"
-    __table_args__ = (UniqueConstraint("series_id", "starts_at", name="uq_training_series_start"),)
+    __table_args__ = (
+        Index(
+            "uq_training_series_start",
+            "series_id",
+            "starts_at",
+            unique=True,
+            sqlite_where=text("COALESCE(cancel_reason, '') <> 'series_edit'"),
+            postgresql_where=text("COALESCE(cancel_reason, '') <> 'series_edit'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     series_id: Mapped[int] = mapped_column(ForeignKey("training_series.id"))
@@ -86,6 +100,7 @@ class Training(Base):
     capacity: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(16), default=TrainingStatus.SCHEDULED, index=True)
     published_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    cancel_reason: Mapped[str | None] = mapped_column(String(16))
     levels: Mapped[list[Level]] = relationship(secondary=training_level, lazy="selectin")
 
     @property

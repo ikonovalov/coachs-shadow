@@ -125,3 +125,36 @@ async def test_concurrent_joins_never_exceed_capacity(session, session_factory):
     outcomes = await asyncio.gather(*(join(uid) for uid in (1, 2, 3, 4)))
     assert outcomes.count(JoinOutcome.JOINED) == 1
     assert await ParticipationService(session).going_count(t.id) == 1
+
+
+async def test_concurrent_rejoins_never_exceed_capacity(session, session_factory):
+    t = await published(session, capacity=1)
+    for uid in (1, 2, 3, 4):
+        await add_user(session, uid)
+        await ParticipationService(session).decline(t.id, uid, NOW)
+
+    async def join(uid):
+        async with session_factory() as s:
+            return await ParticipationService(s).join(t.id, uid, NOW)
+
+    import asyncio
+
+    outcomes = await asyncio.gather(*(join(uid) for uid in (1, 2, 3, 4)))
+    assert outcomes.count(JoinOutcome.JOINED) == 1
+    assert await ParticipationService(session).going_count(t.id) == 1
+
+
+async def test_double_tap_by_same_user_joins_once(session, session_factory):
+    t = await published(session, capacity=5)
+    await add_user(session, 1)
+
+    async def join():
+        async with session_factory() as s:
+            return await ParticipationService(s).join(t.id, 1, NOW)
+
+    import asyncio
+
+    outcomes = await asyncio.gather(*(join() for _ in range(4)))
+    assert sorted(outcomes) == sorted([JoinOutcome.JOINED] + [JoinOutcome.ALREADY] * 3)
+    going, _ = await ParticipationService(session).list_participants(t.id)
+    assert [u.telegram_id for u in going] == [1]

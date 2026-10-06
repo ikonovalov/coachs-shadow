@@ -36,3 +36,15 @@ class ChatTrainer(Base):
     chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id"), primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.telegram_id"), primary_key=True)
     is_lead: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Invite(Base):
+    __tablename__ = "invites"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), default=Role.TRAINER)
+    created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.telegram_id"))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    used_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.telegram_id"))
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
