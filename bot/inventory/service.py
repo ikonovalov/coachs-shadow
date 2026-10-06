@@ -172,6 +172,20 @@ class InventoryService:
     async def _compat(self) -> set[tuple[str, str]]:
         return {(r.cleat_type, r.pedal_type) for r in await self.session.scalars(select(CleatCompat))}
 
+    async def ordered_gear(self, training_id: int, user_id: int) -> list[InventoryItem]:
+        """Педали и туфли, уже заказанные участником на эту тренировку (активные заказы)."""
+        return list(
+            await self.session.scalars(
+                select(InventoryItem)
+                .join(InventoryOrder, InventoryOrder.item_id == InventoryItem.id)
+                .where(
+                    InventoryOrder.training_id == training_id, InventoryOrder.user_id == user_id,
+                    InventoryOrder.status == OrderStatus.ACTIVE,
+                    InventoryItem.kind.in_([ItemKind.PEDALS, ItemKind.SHOES]),
+                )
+            )
+        )
+
     async def own_shoes_problem(self, own_cleat: str | None, pedal_type: str | None) -> str | None:
         return own_shoes_problem(own_cleat, pedal_type, await self._compat())
 
@@ -219,7 +233,9 @@ class InventoryService:
         if len(set(kinds)) != len(kinds):
             raise InvalidAction("Можно заказать одну единицу каждого вида")
         await self._reject_kinds_already_ordered(training_id, user_id, set(kinds))
-        problems = set_problems([to_candidate(i) for i in items], await self._compat())
+        # совместимость — со всем набором участника: педали/туфли, заказанные раньше, тоже считаются
+        held = [i for i in await self.ordered_gear(training_id, user_id) if i.kind not in kinds]
+        problems = set_problems([to_candidate(i) for i in items + held], await self._compat())
         if problems:
             raise InvalidAction(problems[0])
         overlapping = await overlapping_training_ids(self.session, training)

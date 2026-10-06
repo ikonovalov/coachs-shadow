@@ -191,6 +191,7 @@ async def test_profile_text_garbage_keeps_the_question_and_non_text_is_reprompte
 
 
 async def test_cancel_after_partial_order_reports_what_was_ordered(session, state):
+    await state.set_state(InventoryFlow.review)
     await state.update_data(confirmed=["Педали SPD"], not_found=[])
     msg = FakeMessage()
     await h.on_cancel(FakeCallback("iv:no", msg), state)
@@ -206,3 +207,55 @@ async def test_trainer_summary_checks_rights_in_the_service(session, state):
     assert cb.message.edits
     with pytest.raises(PermissionDenied):
         await h.on_trainer_summary(FakeCallback(f"tr:inv:{t.id}"), session, user)
+
+
+async def test_stale_cancel_after_confirm_does_not_claim_the_order_is_cancelled(session, state):
+    t, user = await world(session)
+    spd = await add_item(session, "pedals", "Педали SPD", pedal_type="spd")
+    kinds_msg, msg = FakeMessage(), FakeMessage()
+    await h.begin_inventory(kinds_msg, state, session, user, t.id)
+    await h.on_kind_toggle(FakeCallback("iv:k:pedals", kinds_msg), state)
+    await tap("iv:kdone", state, session, user, h.on_kinds_done, msg)
+    await tap("iv:p:spd", state, session, user, h.on_pedal, msg)
+    await tap("iv:s:own", state, session, user, h.on_shoes_source, msg)
+    await tap("iv:c:spd", state, session, user, h.on_cleat, msg)
+    await tap("iv:ok", state, session, user, h.on_confirm, msg)
+    assert [o.item_id for o in await active_orders(session, 1)] == [spd.id]
+
+    old = FakeCallback("iv:no", kinds_msg)  # «Отмена» на экране видов из того же, уже завершённого диалога
+    await h.on_cancel(old, state)
+    assert kinds_msg.edits == [h.KINDS_TEXT]  # только перерисовка при выборе вида, без «отменён»
+    assert old.answers[-1]["alert"] is True and "/my" in old.answers[-1]["text"]
+    assert [o.item_id for o in await active_orders(session, 1)] == [spd.id]
+
+
+async def test_shoes_ordered_after_pedals_are_compatible_with_the_earlier_pedals(session, state):
+    t, user = await world(session, foot_eu=42)
+    pedals = await add_item(session, "pedals", "Педали SPD", pedal_type="spd")
+    await add_item(session, "shoes", "Туфли Look", shoe_eu=42, cleat_type="look")  # точный размер, шипы не те
+    spd_shoes = await add_item(session, "shoes", "Туфли SPD", shoe_eu=43, cleat_type="spd")
+    await InventoryService(session).confirm(t.id, 1, [pedals.id], NOW)  # заказ из прошлого диалога
+
+    msg = FakeMessage()
+    await h.begin_inventory(msg, state, session, user, t.id)
+    await h.on_kind_toggle(FakeCallback("iv:k:shoes", msg), state)
+    await tap("iv:kdone", state, session, user, h.on_kinds_done, msg)
+    review = msg.answers[-1][0]
+    assert "Туфли SPD" in review and "Туфли Look" not in review
+    await tap("iv:ok", state, session, user, h.on_confirm, msg)
+    assert sorted(o.item_id for o in await active_orders(session, 1)) == sorted([pedals.id, spd_shoes.id])
+
+
+async def test_pedals_ordered_after_park_shoes_are_checked_against_them(session, state):
+    t, user = await world(session, foot_eu=42)
+    shoes = await add_item(session, "shoes", "Туфли SPD", shoe_eu=42, cleat_type="spd")
+    await add_item(session, "pedals", "Педали Look", pedal_type="look")
+    await InventoryService(session).confirm(t.id, 1, [shoes.id], NOW)
+
+    msg = FakeMessage()
+    await h.begin_inventory(msg, state, session, user, t.id)
+    await h.on_kind_toggle(FakeCallback("iv:k:pedals", msg), state)
+    await tap("iv:kdone", state, session, user, h.on_kinds_done, msg)
+    await tap("iv:p:look", state, session, user, h.on_pedal, msg)  # вопрос «свои или из парка» не задаётся
+    assert msg.answers[-2][0].endswith("не подходят к педалям Look. Выберите педали заново.")
+    assert msg.answers[-1][0] == "Какие педали?"

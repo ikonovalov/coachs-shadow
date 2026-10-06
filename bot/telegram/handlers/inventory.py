@@ -93,7 +93,15 @@ async def on_kinds_done(cb: CallbackQuery, state: FSMContext, session: AsyncSess
     if not (await state.get_data()).get("kinds"):
         await cb.answer("Выберите хотя бы одну позицию", show_alert=True)
         return
-    await state.update_data(pedal_type=None, shoes_own=None, own_cleat=None)
+    data = await state.get_data()
+    prefill: dict = {"pedal_type": None, "shoes_own": None, "own_cleat": None}
+    # уже заказанные педали/туфли задают совместимость: новые туфли — под взятые педали, новые педали — под туфли
+    for item in await InventoryService(session).ordered_gear(data["training_id"], user.telegram_id):
+        if item.kind == ItemKind.PEDALS:
+            prefill["pedal_type"] = item.pedal_type
+        elif item.kind == ItemKind.SHOES:
+            prefill.update(shoes_own=False, own_cleat=item.cleat_type)  # проверяется с педалями как свои туфли
+    await state.update_data(**prefill)
     await _advance(cb.message, state, session, user)
     await cb.answer()
 
@@ -262,7 +270,10 @@ async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession
 
 @router.callback_query(F.data == "iv:no")
 async def on_cancel(cb: CallbackQuery, state: FSMContext) -> None:
-    # без привязки к состоянию: «Отмена» есть на каждом шаге диалога
+    # без фильтра состояния: «Отмена» есть на каждом шаге диалога; вне диалога кнопка устарела
+    if await state.get_state() not in InventoryFlow:
+        await cb.answer(STALE + ". Отменить заказ можно в /my", show_alert=True)
+        return
     data = await state.get_data()
     await state.clear()
     confirmed = data.get("confirmed") or []

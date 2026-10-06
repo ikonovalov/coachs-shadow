@@ -322,3 +322,18 @@ async def test_double_tap_confirm_orders_one_item_per_kind(session, session_fact
     await asyncio.gather(confirm(b1), confirm(b2))
     active = list(await session.scalars(select(InventoryOrder).where(InventoryOrder.status == "active")))
     assert len(active) == 1  # один активный заказ на вид
+
+
+async def test_confirm_checks_compat_with_gear_ordered_earlier(session):
+    _, _, t = await world(session)
+    await rider(session, 1, t, foot_eu=42)
+    svc = InventoryService(session)
+    pedals = await add_item(session, "pedals", "Педали SPD", pedal_type="spd")
+    look = await add_item(session, "shoes", "Туфли Look", shoe_eu=42, cleat_type="look")
+    spd = await add_item(session, "shoes", "Туфли SPD", shoe_eu=42, cleat_type="spd")
+    await svc.confirm(t.id, 1, [pedals.id], NOW)
+    assert [i.id for i in await svc.ordered_gear(t.id, 1)] == [pedals.id]
+    with pytest.raises(InvalidAction, match="не подходят"):
+        await svc.confirm(t.id, 1, [look.id], NOW)
+    result = await svc.confirm(t.id, 1, [spd.id], NOW)
+    assert [o.item_id for o in result.orders] == [spd.id]
