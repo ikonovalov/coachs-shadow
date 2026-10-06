@@ -16,7 +16,7 @@ from bot.schedule.models import Level
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers.trainer import ensure_trainer
 from bot.telegram.states import NewTraining
-from bot.telegram.ui import local_today, markup, restore_form, take_form
+from bot.telegram.ui import local_today, markup, restore_form, safe_edit, take_form
 from bot.users.models import User
 
 log = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ async def on_new(cb: CallbackQuery, state: FSMContext, session: AsyncSession, us
     await state.clear()
     await state.update_data(one_off=cb.data.endswith(":one"), level_ids=[])
     await state.set_state(NewTraining.kind)
-    await cb.message.edit_text("Тип тренировки:", reply_markup=markup(KIND_ROW, CANCEL_ROW))
+    await safe_edit(cb.message, "Тип тренировки:", reply_markup=markup(KIND_ROW, CANCEL_ROW))
     await cb.answer()
 
 
@@ -43,7 +43,7 @@ async def on_new(cb: CallbackQuery, state: FSMContext, session: AsyncSession, us
 async def on_kind(cb: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(kind=parse_kind(cb.data.split(":")[2]))
     await state.set_state(NewTraining.place)
-    await cb.message.edit_text("Где проходит тренировка? Напишите место.", reply_markup=markup(CANCEL_ROW))
+    await safe_edit(cb.message, "Где проходит тренировка? Напишите место.", reply_markup=markup(CANCEL_ROW))
     await cb.answer()
 
 
@@ -163,7 +163,7 @@ async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession
         await restore_form(state, NewTraining.confirm, data)
         raise
     log.info("training created by %s (one_off=%s)", user.telegram_id, data.get("one_off"))
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         "Готово ✅ Пост появится в чатах за 24 часа до старта. Расписание: /schedule",
         reply_markup=markup([("⬅️ Меню", "tr:menu")]),
     )
@@ -173,7 +173,7 @@ async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession
 @router.callback_query(F.data == "nf:no")
 async def on_cancel_form(cb: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await cb.message.edit_text("Отменено", reply_markup=markup([("⬅️ Меню", "tr:menu")]))
+    await safe_edit(cb.message, "Отменено", reply_markup=markup([("⬅️ Меню", "tr:menu")]))
     await cb.answer()
 
 

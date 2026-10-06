@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.core.messenger import Messenger
 from bot.telegram.states import Picker
 from bot.core.errors import DomainError
-from bot.telegram.ui import markup, restore_form, take_form
+from bot.telegram.ui import markup, restore_form, safe_edit, take_form
 from bot.users.models import User
 from bot.users.service import UserService
 
@@ -66,7 +66,7 @@ async def on_query(message: Message, state: FSMContext, session: AsyncSession) -
 @router.callback_query(Picker.query, F.data == "pk:cancel")
 async def on_pick_cancel(cb: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await cb.message.edit_text("Отменено")
+    await safe_edit(cb.message, "Отменено")
     await cb.answer()
 
 

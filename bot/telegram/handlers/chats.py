@@ -8,7 +8,7 @@ from bot.core.messenger import Messenger
 from bot.core.permissions import Role
 from bot.schedule.models import Chat
 from bot.telegram.handlers.picker import on_pick, start_picker
-from bot.telegram.ui import markup
+from bot.telegram.ui import markup, safe_edit
 from bot.users.models import User
 from bot.users.roles import RoleService
 
@@ -43,19 +43,23 @@ async def _show_chat(cb: CallbackQuery, session: AsyncSession, user: User, chat_
         lines.append("пока нет")
     rows.append([("➕ Добавить тренера", f"ch:add:{chat_id}")])
     rows.append([("⬅️ К чатам", "ch:list")])
-    await cb.message.edit_text("\n".join(lines), reply_markup=markup(*rows))
+    await safe_edit(cb.message, "\n".join(lines), reply_markup=markup(*rows))
+
+
+async def _show_list(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    chats = await RoleService(session).manageable_chats(user)
+    if not chats:
+        await safe_edit(cb.message, "Нет чатов под вашим управлением", reply_markup=markup([_back(user)]))
+    else:
+        rows = [[(c.title, f"ch:c:{c.chat_id}")] for c in chats]
+        rows.append([_back(user)])
+        await safe_edit(cb.message, "Чаты:", reply_markup=markup(*rows))
 
 
 @router.callback_query(F.data == "ch:list")
 async def on_list(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
     await state.clear()
-    chats = await RoleService(session).manageable_chats(user)
-    if not chats:
-        await cb.message.edit_text("Нет чатов под вашим управлением", reply_markup=markup([_back(user)]))
-    else:
-        rows = [[(c.title, f"ch:c:{c.chat_id}")] for c in chats]
-        rows.append([_back(user)])
-        await cb.message.edit_text("Чаты:", reply_markup=markup(*rows))
+    await _show_list(cb, session, user)
     await cb.answer()
 
 
@@ -73,7 +77,7 @@ async def on_remove(cb: CallbackQuery, session: AsyncSession, user: User) -> Non
     chat = await session.get(Chat, int(chat_id))
     if target is None or chat is None:
         raise NotFound("Не найдено")
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         f"Убрать {target.name} из тренеров чата «{chat.title}»?",
         reply_markup=markup([("✅ Убрать", f"ch:rmy:{chat_id}:{uid}"), ("✖️ Отмена", f"ch:c:{chat_id}")]),
     )
@@ -84,7 +88,10 @@ async def on_remove(cb: CallbackQuery, session: AsyncSession, user: User) -> Non
 async def on_remove_confirmed(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     _, _, chat_id, uid = cb.data.split(":")
     await RoleService(session).remove_chat_trainer(user, int(chat_id), int(uid))
-    await _show_chat(cb, session, user, int(chat_id))
+    try:
+        await _show_chat(cb, session, user, int(chat_id))
+    except PermissionDenied:  # главный тренер убрал себя и больше не управляет этим чатом
+        await _show_list(cb, session, user)
     await cb.answer("Убран")
 
 

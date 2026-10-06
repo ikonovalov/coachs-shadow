@@ -21,7 +21,7 @@ from bot.schedule.queries import trainer_level_ids
 from bot.schedule.service import ScheduleService, series_to_input
 from bot.telegram.handlers.picker import on_pick, start_picker
 from bot.telegram.states import EditField
-from bot.telegram.ui import club_tz, local_today, markup, restore_form, short_title, take_form
+from bot.telegram.ui import club_tz, local_today, markup, restore_form, safe_edit, short_title, take_form
 from bot.usecases import (
     cancel_trainings, manual_add_participant, manual_remove_participant, update_series, update_training,
 )
@@ -93,7 +93,7 @@ async def cmd_trainer(message: Message, session: AsyncSession, user: User, state
 async def on_menu(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
     await ensure_trainer(session, user)
     await state.clear()
-    await cb.message.edit_text("Меню тренера", reply_markup=TRAINER_MENU)
+    await safe_edit(cb.message, "Меню тренера", reply_markup=TRAINER_MENU)
     await cb.answer()
 
 
@@ -106,7 +106,7 @@ async def on_list(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     if items:
         rows.append([("🗑 Отменить несколько", "tr:multi")])
     rows.append([("⬅️ Меню", "tr:menu")])
-    await cb.message.edit_text("Мои тренировки" if items else "Ближайших тренировок нет", reply_markup=markup(*rows))
+    await safe_edit(cb.message, "Мои тренировки" if items else "Ближайших тренировок нет", reply_markup=markup(*rows))
     await cb.answer()
 
 
@@ -126,7 +126,7 @@ async def on_detail(cb: CallbackQuery, session: AsyncSession, user: User, messen
     if series is not None and can_edit_series(user, series):
         rows.append([("🔁 Изменить серию", f"tr:series:{series.id}")])
     rows.append([("⬅️ Назад", "tr:list")])
-    await cb.message.edit_text(text, reply_markup=markup(*rows))
+    await safe_edit(cb.message, text, reply_markup=markup(*rows))
     await cb.answer()
 
 
@@ -136,7 +136,7 @@ async def on_detail(cb: CallbackQuery, session: AsyncSession, user: User, messen
 async def on_cancel_ask(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     training = await _get_managed(session, user, _id(cb))
     tz = await club_tz(session)
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         f"Отменить тренировку?\n{short_title(training, tz)}\nЗаписавшимся уйдёт уведомление.",
         reply_markup=markup([("🗑 Да, отменить", f"tr:cancelok:{training.id}"), ("Нет", f"tr:t:{training.id}")]),
     )
@@ -146,7 +146,7 @@ async def on_cancel_ask(cb: CallbackQuery, session: AsyncSession, user: User) ->
 @router.callback_query(F.data.startswith("tr:cancelok:"))
 async def on_cancel_do(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
     await cancel_trainings(session, messenger, user, [_id(cb)], utcnow())
-    await cb.message.edit_text("Тренировка отменена", reply_markup=markup([("⬅️ К списку", "tr:list")]))
+    await safe_edit(cb.message, "Тренировка отменена", reply_markup=markup([("⬅️ К списку", "tr:list")]))
     await cb.answer()
 
 
@@ -157,7 +157,7 @@ async def _render_multi(cb: CallbackQuery, session: AsyncSession, user: User, st
     rows = [[(("✅ " if t.id in selected else "▫️ ") + short_title(t, tz), f"tr:mt:{t.id}")] for t in items]
     rows.append([(f"Отменить выбранные ({len(selected)})", "tr:mgo")])
     rows.append([("⬅️ Назад", "tr:list")])
-    await cb.message.edit_text("Отметьте тренировки для отмены", reply_markup=markup(*rows))
+    await safe_edit(cb.message, "Отметьте тренировки для отмены", reply_markup=markup(*rows))
 
 
 @router.callback_query(F.data == "tr:multi")
@@ -185,7 +185,7 @@ async def on_multi_ask(cb: CallbackQuery, state: FSMContext) -> None:
     if not sel:
         await cb.answer("Ничего не выбрано", show_alert=True)
         return
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         f"Отменить тренировок: {len(sel)}? Записавшимся уйдут уведомления.",
         reply_markup=markup([("🗑 Да, отменить", "tr:mok"), ("Нет", "tr:multi")]),
     )
@@ -204,7 +204,7 @@ async def on_multi_do(cb: CallbackQuery, session: AsyncSession, user: User, mess
     except DomainError:
         await restore_form(state, None, data)
         raise
-    await cb.message.edit_text(f"Отменено тренировок: {len(sel)}", reply_markup=markup([("⬅️ К списку", "tr:list")]))
+    await safe_edit(cb.message, f"Отменено тренировок: {len(sel)}", reply_markup=markup([("⬅️ К списку", "tr:list")]))
     await cb.answer()
 
 
@@ -233,7 +233,7 @@ async def on_series_menu(cb: CallbackQuery, session: AsyncSession, user: User) -
               "weekdays": "Дни", "time": "Время", "end_date": "Окончание"}
     rows = [[(f"✏️ {label}", f"tr:sedit:{sid}:{field}")] for field, label in labels.items()]
     rows.append([("⬅️ Назад", "tr:list")])
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         "Изменение серии применится ко всем будущим тренировкам. Уже опубликованные будут отменены "
         "и заменены новыми, записи придётся оформить заново.",
         reply_markup=markup(*rows),
@@ -293,7 +293,7 @@ async def on_series_confirm(cb: CallbackQuery, state: FSMContext, session: Async
     except DomainError:
         await restore_form(state, EditField.value, data)
         raise
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         f"Серия обновлена ✅ Заменено опубликованных тренировок: {len(replaced)}",
         reply_markup=markup([("⬅️ К списку", "tr:list")]),
     )
@@ -309,7 +309,7 @@ async def _show_participants(cb: CallbackQuery, session: AsyncSession, user: Use
     rows.append([("➕ Записать участника", f"tr:add:{training_id}")])
     rows.append([("⬅️ Назад", f"tr:t:{training_id}")])
     text = render_participants([u.name for u in going], [u.name for u in declined])
-    await cb.message.edit_text(text + "\n\nНажмите на имя, чтобы убрать из списка.", reply_markup=markup(*rows))
+    await safe_edit(cb.message, text + "\n\nНажмите на имя, чтобы убрать из списка.", reply_markup=markup(*rows))
 
 
 @router.callback_query(F.data.startswith("tr:who:"))
@@ -336,12 +336,12 @@ async def picked_for_manual_add(cb, session, user, messenger, ctx, picked_id) ->
     training_id = ctx["training_id"]
     outcome = await manual_add_participant(session, messenger, user, training_id, picked_id, utcnow())
     if outcome == JoinOutcome.OVER_LIMIT:
-        await cb.message.edit_text(
+        await safe_edit(cb.message, 
             "⚠️ Лимит превышен. Записать всё равно?",
             reply_markup=markup([("Да, записать", f"tr:force:{training_id}:{picked_id}"), ("Нет", f"tr:who:{training_id}")]),
         )
     else:
-        await cb.message.edit_text(
+        await safe_edit(cb.message, 
             "Уже записан" if outcome == JoinOutcome.ALREADY else "Записан ✅",
             reply_markup=markup([("⬅️ К участникам", f"tr:who:{training_id}")]),
         )
@@ -354,3 +354,9 @@ async def on_force(cb: CallbackQuery, session: AsyncSession, user: User, messeng
     await manual_add_participant(session, messenger, user, training_id, user_id, utcnow(), allow_over_limit=True)
     await _show_participants(cb, session, user, training_id)
     await cb.answer("Записан сверх лимита")
+
+
+@router.callback_query(F.data.startswith("tr:"))
+async def on_stale(cb: CallbackQuery) -> None:
+    """Last in the router: an expired button (e.g. "Применить" after the form was closed) just stops the spinner."""
+    await cb.answer("Кнопка устарела. Откройте меню заново: /trainer")

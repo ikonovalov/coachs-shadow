@@ -15,7 +15,7 @@ async def cmd_start_link(message: Message, command: CommandObject, session: Asyn
     arg = command.args or ""
     if arg.startswith("trainer_"):
         await RoleService(session).redeem_invite(arg[len("trainer_"):], user, utcnow())
-        await message.answer("Вы назначены тренером. Администратор добавит вас в чат. Меню: /trainer")
+        await message.answer("Вы назначены тренером. Меню тренера (/trainer) откроется, когда администратор добавит вас в чат клуба.")
         return
     await cmd_start(message, user)
 

@@ -14,7 +14,7 @@ from bot.schedule.models import Level
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers.picker import on_pick, start_picker
 from bot.telegram.states import AdminInput
-from bot.telegram.ui import markup, restore_form, take_form
+from bot.telegram.ui import markup, restore_form, safe_edit, take_form
 from bot.users.models import User
 from bot.users.roles import RoleService
 
@@ -62,7 +62,7 @@ async def cmd_admin(message: Message, user: User, state: FSMContext) -> None:
 async def on_menu(cb: CallbackQuery, user: User, state: FSMContext) -> None:
     require_admin(user)
     await state.clear()
-    await cb.message.edit_text("Меню администратора", reply_markup=ADMIN_MENU)
+    await safe_edit(cb.message, "Меню администратора", reply_markup=ADMIN_MENU)
     await cb.answer()
 
 
@@ -74,7 +74,7 @@ async def _show_trainers(cb: CallbackQuery, session: AsyncSession) -> None:
     rows.append([("➕ Назначить тренера", "ad:addt")])
     rows.append([("⬅️ Меню", "ad:menu")])
     text = "Тренеры (нажмите, чтобы снять роль):" if trainers else "Тренеров пока нет"
-    await cb.message.edit_text(text, reply_markup=markup(*rows))
+    await safe_edit(cb.message, text, reply_markup=markup(*rows))
 
 
 @router.callback_query(F.data == "ad:trainers")
@@ -91,7 +91,7 @@ async def on_revoke_trainer(cb: CallbackQuery, session: AsyncSession, user: User
     target = await session.get(User, uid)
     if target is None:
         raise NotFound("Пользователь не найден")
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         f"Снять роль тренера с {target.name}? Он будет убран из тренеров всех чатов.",
         reply_markup=markup([("✅ Снять", f"ad:rty:{uid}"), ("✖️ Отмена", "ad:trainers")]),
     )
@@ -129,7 +129,7 @@ async def _show_admins(cb: CallbackQuery, session: AsyncSession) -> None:
     rows = [[(f"❌ {a.name}", f"ad:ra:{a.telegram_id}")] for a in admins]
     rows.append([("➕ Назначить админа", "ad:adda")])
     rows.append([("⬅️ Меню", "ad:menu")])
-    await cb.message.edit_text("Администраторы (нажмите, чтобы снять):", reply_markup=markup(*rows))
+    await safe_edit(cb.message, "Администраторы (нажмите, чтобы снять):", reply_markup=markup(*rows))
 
 
 @router.callback_query(F.data == "ad:admins")
@@ -148,7 +148,7 @@ async def on_revoke_admin(cb: CallbackQuery, session: AsyncSession, user: User, 
     target = await session.get(User, uid)
     if target is None:
         raise NotFound("Пользователь не найден")
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         f"Снять права администратора с {target.name}?",
         reply_markup=markup([("✅ Снять", f"ad:ray:{uid}"), ("✖️ Отмена", "ad:admins")]),
     )
@@ -188,7 +188,7 @@ async def picked_admin(
 async def on_levels(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     require_admin(user)
     names = list(await session.scalars(select(Level.name).order_by(Level.position, Level.id)))
-    await cb.message.edit_text(
+    await safe_edit(cb.message, 
         "Уровни:\n" + ("\n".join(f"• {n}" for n in names) or "пока нет"),
         reply_markup=markup([("➕ Добавить уровень", "ad:addlvl")], [("⬅️ Меню", "ad:menu")]),
     )
@@ -227,7 +227,7 @@ async def on_settings(cb: CallbackQuery, session: AsyncSession, user: User) -> N
     for key, label in SETTING_LABELS.items():
         rows.append([(f"{label}: {await get_setting(session, key)}", f"ad:set:{key}")])
     rows.append([("⬅️ Меню", "ad:menu")])
-    await cb.message.edit_text("Настройки (нажмите, чтобы изменить):", reply_markup=markup(*rows))
+    await safe_edit(cb.message, "Настройки (нажмите, чтобы изменить):", reply_markup=markup(*rows))
     await cb.answer()
 
 
