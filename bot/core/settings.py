@@ -1,8 +1,11 @@
+from zoneinfo import ZoneInfo
+
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from bot.core.db import Base
+from bot.core.errors import InvalidAction
 
 DEFAULTS: dict[str, str] = {
     "publish_window_h": "24",
@@ -39,3 +42,21 @@ async def set_setting(session: AsyncSession, key: str, value: str) -> None:
 async def set_setting_if_absent(session: AsyncSession, key: str, value: str) -> None:
     if await session.get(Setting, key) is None:
         await set_setting(session, key, value)
+
+
+def validate_setting(key: str, value: str) -> str:
+    value = value.strip()
+    if key in ("publish_window_h", "reminder_h", "duration_min"):
+        if not value.isdigit() or int(value) < 1:
+            raise InvalidAction("Нужно целое число больше нуля")
+    elif key == "inventory_deadline_h":
+        if value and not value.isdigit():
+            raise InvalidAction("Нужно целое число часов или пусто (без ограничения)")
+    elif key == "club_timezone":
+        try:
+            ZoneInfo(value)
+        except Exception:
+            raise InvalidAction("Неизвестный часовой пояс (пример: Europe/Moscow)") from None
+    else:
+        raise KeyError(key)
+    return value
