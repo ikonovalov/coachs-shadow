@@ -29,7 +29,7 @@ flowchart TB
     TG[(Telegram)]
     subgraph TL["bot/telegram — единственный слой с aiogram"]
         MW["middlewares<br/>DbSession · clear_state_on_command · Access"]
-        H["handlers<br/>common · picker · admin · chats · profile · my · inventory<br/>schedule · trainer · trainer_forms · participation"]
+        H["handlers<br/>common · picker · park · admin · chats · profile · my · inventory<br/>schedule · trainer · trainer_forms · participation"]
         AM["AiogramMessenger / AiogramMembership"]
     end
     UC["bot/usecases.py<br/>сквозные операции"]
@@ -38,6 +38,7 @@ flowchart TB
         S[schedule]
         P[participation]
         PB[publishing]
+        INV[inventory]
     end
     J["bot/jobs<br/>очередь + scheduler_loop"]
     CORE["bot/core<br/>config · db · errors · settings · permissions · Messenger"]
@@ -69,6 +70,7 @@ bot/
   schedule/          Level, Chat, TrainingSeries, Training; повторения, генерация, правка, отмена
   participation/     Participation; запись с лимитом мест
   publishing/        TrainingPost; рендер карточки, публикация, обновление, напоминания
+  inventory/         InventoryItem, InventoryOrder, CleatCompat; парк, подбор, заказ, сводка тренера
   jobs/              ScheduledJob; очередь, обработчики, раннер
   telegram/          handlers/, middleware, keyboards, states, ui, messenger, membership
 alembic/             миграции
@@ -92,6 +94,7 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
 | `schedule` | уровни, привязка чатов к уровням, серии-шаблоны и тренировки, генерация по правилу повторения, правка и отмена |
 | `participation` | запись «Пойду / Не пойду», ручное добавление/удаление тренером, контроль лимита мест |
 | `publishing` | карточка тренировки (`render.py`), публикация в чаты, обновление постов, напоминания, закрытие, объявления об отмене/замене |
+| `inventory` | парк инвентаря (велосипеды, педали, туфли, шлемы), подбор по профилю, заказ на тренировку, отмена, сводка для тренера |
 | `jobs` | очередь отложенных задач и её исполнитель |
 
 Правила:
@@ -99,10 +102,16 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
 - **Фичи не импортируют сервисы друг друга.** Всё, что меняет состояние и одновременно должно обновить
   посты или уведомить людей, живёт в `bot/usecases.py`: `join_training`, `decline_training`,
   `cancel_trainings`, `update_series`, `update_training`, `manual_add_participant`,
-  `manual_remove_participant`. Use case = вызов сервиса + `PublishService.refresh_posts` / объявление.
+  `manual_remove_participant`, `set_item_active`. Use case = вызов сервиса + `PublishService.refresh_posts` /
+  объявление / уведомление.
   Отказ, ручное удаление, отмена тренировки и замена при правке серии также отменяют активные заказы
   инвентаря (`InventoryService.cancel_for_participant` / `cancel_for_training`); участнику, который
   отказался или был удалён, приходит уведомление со списком отменённых единиц.
+  `set_item_active` (вывод единицы из парка) отменяет её активные заказы на будущие запланированные
+  тренировки (`InventoryService.cancel_for_item`, только админ) и уведомляет каждого участника (единица и
+  тренировка); возврат в парк ничего больше не меняет. Уведомления в use case'ах шлются через
+  `_notify_quietly`: изменение уже закоммичено, поэтому исключение `notify` логируется и не прерывает
+  обновление постов и остальные уведомления.
 - Фичи могут делиться моделями и read-хелперами из `bot/schedule/queries.py` (`can_manage`,
   `going_count`, `target_chat_ids`, …), но не сервисами.
 - Права проверяются **в сервисах**, а не в обработчиках: данные в callback и FSM подделываются.
@@ -124,9 +133,10 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
 - **Профиль и «Мои записи»** (только личка): `/profile` (`handlers/profile.py`, префикс `pf:`) — рост и размер
   ноги вводятся текстом в состоянии `ProfileInput.value` (неверный ввод → подсказка из `DomainError`, состояние
   сохраняется), шлем и тип шипов — кнопками; разбор и проверка значений — в `UserService.update_profile`.
-  `/my` (`handlers/my.py`, префикс `my:`) — будущие тренировки с записью (`ParticipationService.my_upcoming`)
+  `/my` (`handlers/my.py`, префикс `my:`) — до 15 будущих тренировок с записью (`ParticipationService.my_upcoming`)
   и активные заказы инвентаря с кнопками отмены (`InventoryService.cancel_order` сам проверяет владельца,
-  время старта и повторное нажатие).
+  время старта и повторное нажатие). Кнопки строит `inventory/flow.cancel_buttons`: только для тренировок,
+  попавших в текст, с датой и временем старта (`🗑 20.10 19:00 · Шлем №2`).
 - **Заказ инвентаря** (`handlers/inventory.py`, префиксы `inv:` / `iv:`, состояния `InventoryFlow`). Кнопка
   «🚲 Инвентарь» на карточке (`inv:<id>`) в группе отвечает ссылкой `t.me/<bot>?start=inv_<id>` («Продолжим в личке»),
   диплинк `inv_<id>` в `common.py` и та же кнопка в личке вызывают `begin_inventory`; незаписанному предлагается
@@ -146,7 +156,8 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   тап по старой кнопке ничего не переключает обратно. «➕ Добавить» (`ad:pka`) → вид (`ad:pkk:<kind>`) → одна
   строка через «;» в состоянии `ParkInput.line`, разбор — `inventory/items.parse_item_line` (формат —
   `ITEM_FORMATS`); неверная строка → подсказка формата, состояние сохраняется. Права (только админ) проверяют
-  `InventoryService.add_item` / `set_active`.
+  `InventoryService.add_item` / `set_active` / `cancel_for_item`. Переключение идёт через use case
+  `set_item_active`; при выводе из парка админ видит, сколько заказов отменено («Отменено заказов: N»).
 - **Формы и повторные нажатия.** Апдейты обрабатываются параллельно, поэтому подтверждающие
   обработчики сначала «забирают» форму (`take_form`), затем вызывают сервис, и при `DomainError`
   возвращают её (`restore_form`) — двойной тап не выполнит действие дважды. Экраны правятся через `safe_edit`.
@@ -175,6 +186,28 @@ erDiagram
     trainings ||--o{ training_posts : "по посту на чат"
     chats ||--o{ training_posts : ""
     trainings ||--o{ scheduled_jobs : ""
+    trainings ||--o{ inventory_orders : ""
+    users ||--o{ inventory_orders : ""
+    inventory_items ||--o{ inventory_orders : "заказы единицы"
+    inventory_items {
+        int id PK
+        string kind "bike / pedals / shoes / helmet"
+        string label
+        bool active
+        string params "frame, height_min/max, shoe_eu, cleat_type, pedal_type, helmet_size, price_per_use"
+    }
+    inventory_orders {
+        int id PK
+        int training_id FK
+        bigint user_id FK
+        int item_id FK
+        string status "active / cancelled"
+        int price
+    }
+    cleat_compat {
+        string cleat_type PK
+        string pedal_type PK
+    }
     settings {
         string key PK
         string value
@@ -195,9 +228,16 @@ erDiagram
 - **Время хранится в UTC.** `UTCDateTime` принимает только aware-значения и всегда возвращает aware UTC.
   Правила повторения (`schedule/recurrence.py`) вычисляются в `club_timezone` (настройка в БД, при старте
   инициализируется из конфигурации, если её ещё нет).
+- **Инвентарь**: `inventory_items` — конкретные единицы парка (колонки, не нужные виду, пусты; `active = false` —
+  выведена из парка), `inventory_orders` — заказ единицы участником на тренировку (`active` / `cancelled`;
+  отменённые остаются для истории, `price` — снимок `price_per_use`), `cleat_compat` — какие шипы подходят к
+  каким педалям (данные, заполняются `ensure_cleat_compat`). Профиль участника (рост, размер ноги, шлем, шипы
+  своих туфель) хранится в `users`.
 - **Настройки в БД** (`settings`): `publish_window_h` (24), `reminder_h` (2), `duration_min` (90),
-  `inventory_deadline_h` (пусто — без дедлайна заказа инвентаря; в `/admin` → «⚙️ Настройки» вводится «-» или
-  «нет»), `club_timezone`; значения по умолчанию — в `DEFAULTS`, валидация — `validate_setting`.
+  `inventory_deadline_h` (пусто — без дедлайна заказа инвентаря; в `/admin` → «⚙️ Настройки» вводится целое
+  число часов от 0 до 720, «-» или «нет»; 0 — заказ открыт до старта), `club_timezone`; значения по умолчанию —
+  в `DEFAULTS`, валидация — `validate_setting`. Значение дедлайна, записанное в БД в обход валидации,
+  `InventoryService` ограничивает 720 ч (нечитаемое — «без дедлайна»).
 - Новые модели обязательно импортировать в `bot/registry.py`, иначе Alembic их не увидит.
 
 ## 6. Роли и доступ
@@ -276,6 +316,30 @@ pysqlite выполняет SELECT вне транзакции, поэтому �
 Исходы `join`: `JOINED`, `ALREADY`, `FULL`. Конкурентность подкреплена тестом в `tests/participation/` —
 его нужно сохранять зелёным при любых правках сервиса. Ручное добавление тренером может превысить лимит
 (`allow_over_limit`).
+
+### Заказ инвентаря
+
+`InventoryService` следует тем же правилам (единица парка — «место» на время тренировки):
+
+- **Взятие единицы — один оператор** (`_take_item`): `INSERT … SELECT … WHERE` единица свободна AND активна
+  AND участник `going` AND тренировка `scheduled` AND у участника нет активного заказа этого вида на эту
+  тренировку. «Свободна» — нет активного заказа этой единицы на любой тренировке, **пересекающейся по
+  времени** (`overlapping_training_ids`: `a.starts_at < b.ends_at AND b.starts_at < a.ends_at`), поэтому
+  тренировки «встык» одну единицу делят. Исход — по `rowcount`.
+- **`confirm`: конфликт против отката.** Если единицу не взяли, `_explain_miss` выясняет причину: занята
+  (параллельный заказ другого участника) — вид попадает в `ConfirmResult.conflicts`, остальные позиции
+  заказываются и коммитятся; тренировка отменена, участник уже не `going` или тот же вид только что заказан
+  этим же участником (двойной тап) — откатывается **весь** вызов и бросается `DomainError`.
+- **Отмены** — условный `UPDATE … WHERE status = 'active'` с проверкой `rowcount` (`_cancel_one`): из двух
+  нажатий отменяет одно, массовые отмены (`cancel_for_participant`, `cancel_for_training`, `cancel_for_item`)
+  возвращают только то, что отменил этот вызов, — поэтому уведомления не дублируются.
+- **Совместимость педалей и туфель** проверяется по всему набору участника: выбранные единицы плюс педали/туфли,
+  уже заказанные им на эту тренировку (`ordered_gear`).
+- Расчёт на стандартную обработку транзакций pysqlite: SELECT идут вне транзакции, первый INSERT/UPDATE
+  открывает её и берёт блокировку записи SQLite, которую держит до коммита. Поэтому все проверки, от
+  которых зависит корректность, сидят внутри пишущего оператора. `with_for_update` в `confirm` — для
+  PostgreSQL. Конкурентность покрыта тестами в `tests/inventory/test_service.py`
+  (`test_concurrent_confirms_never_give_the_last_item_twice`, `test_double_tap_confirm_orders_one_item_per_kind`).
 
 ## 9. Очередь задач (`bot/jobs`)
 
