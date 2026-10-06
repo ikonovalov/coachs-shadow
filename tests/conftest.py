@@ -22,3 +22,11 @@ def session_factory(engine):
 async def session(session_factory):
     async with session_factory() as s:
         yield s
+
+
+from tests.fakes import FakeMessenger  # noqa: E402
+
+
+@pytest.fixture
+def messenger():
+    return FakeMessenger()
