@@ -55,6 +55,46 @@ async def test_rebinding_a_chat_changes_its_level(session):
     assert chat.level_id == b.id
 
 
+async def test_list_levels_orders_by_position_then_name(session):
+    svc = ScheduleService(session)
+    assert await svc.list_levels() == []
+    await add_level(session, "Б", position=1)
+    await add_level(session, "Я", position=0)
+    await add_level(session, "А", position=1)
+    assert [lvl.name for lvl in await svc.list_levels()] == ["Я", "А", "Б"]
+
+
+async def test_get_level_found_and_missing(session):
+    level = await add_level(session, "Новички")
+    svc = ScheduleService(session)
+    assert (await svc.get_level(level.id)).name == "Новички"
+    with pytest.raises(NotFound, match="Уровень не найден"):
+        await svc.get_level(level.id + 100)
+
+
+async def test_add_level_rejects_too_long_duplicate_and_blank_names(session):
+    admin = await add_user(session, 99, "admin")
+    svc = ScheduleService(session)
+    with pytest.raises(InvalidAction, match="длиннее"):
+        await svc.add_level(admin, "х" * 51)
+    await svc.add_level(admin, "Новички")
+    with pytest.raises(InvalidAction, match="уже есть"):
+        await svc.add_level(admin, "  Новички ")
+    with pytest.raises(InvalidAction):
+        await svc.add_level(admin, "   ")
+    assert [lvl.name for lvl in await svc.list_levels()] == ["Новички"]
+    await svc.add_level(admin, "х" * 50)  # граница допустима
+
+
+async def test_bind_chat_to_level_found_by_id(session):
+    admin = await add_user(session, 99, "admin")
+    level = await add_level(session, "Новички")
+    svc = ScheduleService(session)
+    found = await svc.get_level(level.id)
+    chat = await svc.bind_chat(admin, -1001, "Новички клуба", found.name)
+    assert chat.level_id == level.id
+
+
 # ---------- creating series ----------
 
 async def test_one_off_creates_one_training_with_jobs(session):

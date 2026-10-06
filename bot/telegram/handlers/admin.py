@@ -2,7 +2,6 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.db import utcnow
@@ -10,9 +9,9 @@ from bot.core.errors import DomainError, InvalidAction, NotFound
 from bot.core.messenger import Messenger
 from bot.core.permissions import Role, require_admin
 from bot.core.settings import get_setting, set_setting, validate_setting
-from bot.schedule.models import Level
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers.picker import on_pick, start_picker
+from bot.telegram.menu import ADD_LEVEL_CANCEL, ADMIN_MENU, cancel_keyboard
 from bot.telegram.states import AdminInput
 from bot.telegram.ui import markup, restore_form, safe_edit, take_form
 from bot.users.models import User
@@ -22,12 +21,6 @@ router = Router()
 router.callback_query.filter(F.message.chat.type == "private")  # admin menus live in private only
 
 
-ADMIN_MENU = markup(
-    [("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins")],
-    [("🎚 Уровни", "ad:levels"), ("💬 Чаты", "ch:list")],
-    [("🚲 Парк инвентаря", "ad:park")],
-    [("🔗 Приглашение тренера", "ad:invite"), ("⚙️ Настройки", "ad:settings")],
-)
 SETTING_LABELS = {
     "publish_window_h": "За сколько часов публиковать пост",
     "reminder_h": "За сколько часов напоминать в личку",
@@ -43,14 +36,6 @@ async def cmd_add_level(message: Message, command: CommandObject, session: Async
         raise InvalidAction("Использование: /add_level Название уровня")
     level = await ScheduleService(session).add_level(user, command.args)
     await message.answer(f"Уровень «{level.name}» добавлен")
-
-
-@router.message(Command("bind_level"), F.chat.type.in_({"group", "supergroup"}))
-async def cmd_bind_level(message: Message, command: CommandObject, session: AsyncSession, user: User) -> None:
-    if not command.args:
-        raise InvalidAction("Использование: /bind_level Название уровня")
-    await ScheduleService(session).bind_chat(user, message.chat.id, message.chat.title or "", command.args)
-    await message.answer(f"Чат привязан к уровню «{command.args.strip()}»")
 
 
 @router.message(Command("admin"), F.chat.type == "private")
@@ -189,10 +174,10 @@ async def picked_admin(
 @router.callback_query(F.data == "ad:levels")
 async def on_levels(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     require_admin(user)
-    names = list(await session.scalars(select(Level.name).order_by(Level.position, Level.id)))
+    names = [level.name for level in await ScheduleService(session).list_levels()]
     await safe_edit(cb.message, 
         "Уровни:\n" + ("\n".join(f"• {n}" for n in names) or "пока нет"),
-        reply_markup=markup([("➕ Добавить уровень", "ad:addlvl")], [("⬅️ Меню", "ad:menu")]),
+        reply_markup=markup([("➕ Новый уровень", "ad:addlvl")], [("⬅️ Меню", "ad:menu")]),
     )
     await cb.answer()
 
@@ -203,7 +188,15 @@ async def on_add_level(cb: CallbackQuery, state: FSMContext, user: User) -> None
     await state.clear()
     await state.set_state(AdminInput.value)
     await state.update_data(purpose="add_level")
-    await cb.message.answer("Название нового уровня:")
+    await cb.message.answer("Название нового уровня:", reply_markup=cancel_keyboard())
+    await cb.answer()
+
+
+@router.callback_query(F.data == ADD_LEVEL_CANCEL)
+async def on_add_level_cancel(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+    require_admin(user)
+    await state.clear()
+    await safe_edit(cb.message, "Меню администратора", reply_markup=ADMIN_MENU)
     await cb.answer()
 
 
@@ -263,7 +256,7 @@ async def on_admin_input(message: Message, state: FSMContext, session: AsyncSess
         await restore_form(state, AdminInput.value, data)  # при ошибке ввода можно повторить
         raise
     if purpose == "add_level":
-        await message.answer(f"Уровень «{level.name}» добавлен. Привяжите чат: /bind_level {level.name}")
+        await message.answer(f"Уровень «{level.name}» добавлен", reply_markup=ADMIN_MENU)
     else:
         await message.answer("Сохранено ✅")
 

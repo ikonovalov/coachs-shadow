@@ -20,6 +20,7 @@ from bot.schedule.models import Training, TrainingSeries
 from bot.schedule.queries import trainer_level_ids
 from bot.schedule.service import ScheduleService, series_to_input
 from bot.telegram.handlers.picker import on_pick, start_picker
+from bot.telegram.menu import TRAINER_MENU
 from bot.telegram.states import EditField
 from bot.telegram.ui import club_tz, local_today, markup, restore_form, safe_edit, short_title, take_form
 from bot.usecases import (
@@ -31,11 +32,6 @@ log = logging.getLogger(__name__)
 
 router = Router()
 
-TRAINER_MENU = markup(
-    [("📋 Мои тренировки", "tr:list")],
-    [("➕ Новая серия", "tr:new:series"), ("➕ Разовая", "tr:new:one")],
-    [("💬 Мои чаты", "ch:list")],
-)
 
 
 async def ensure_trainer(session: AsyncSession, user: User) -> None:

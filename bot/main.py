@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import ExceptionTypeFilter
 
@@ -13,8 +14,9 @@ from bot.bootstrap import bootstrap
 from bot.jobs.runner import scheduler_loop
 from bot.telegram.errors import on_domain_error
 from bot.telegram.handlers import (
-    admin, chats, common, inventory, my, park, participation, picker, profile, schedule, trainer, trainer_forms,
+    admin, binding, chats, common, inventory, my, park, participation, picker, profile, schedule, trainer, trainer_forms,
 )
+from bot.telegram.menu import BOT_COMMANDS
 from bot.telegram.membership import AiogramMembership
 from bot.telegram.messenger import AiogramMessenger
 from bot.telegram.middleware import AccessMiddleware, DbSessionMiddleware, clear_state_on_command
@@ -30,6 +32,7 @@ async def main() -> None:
     await bootstrap(session_factory, cfg, utcnow())
 
     bot = Bot(cfg.bot_token)
+    await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in BOT_COMMANDS])
     messenger = AiogramMessenger(bot)
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.outer_middleware(DbSessionMiddleware(session_factory, cfg.admin_ids))
@@ -43,8 +46,9 @@ async def main() -> None:
     # inventory before trainer for the same reason ("tr:inv:*"); park before admin ("ad:park", "ad:pk*" vs "ad:").
     # Each router ends with a stateless catch-all for its own "<prefix>:" callbacks (expired buttons).
     dp.include_routers(
-        trainer_forms.router, common.router, picker.router, park.router, admin.router, chats.router, profile.router,
-        my.router, inventory.router, schedule.router, trainer.router, participation.router,
+        trainer_forms.router, common.router, binding.router, picker.router, park.router, admin.router,
+        chats.router, profile.router, my.router, inventory.router, schedule.router, trainer.router,
+        participation.router,
     )
 
     scheduler = asyncio.create_task(scheduler_loop(session_factory, messenger))

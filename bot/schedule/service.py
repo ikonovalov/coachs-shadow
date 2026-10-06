@@ -15,6 +15,7 @@ from bot.schedule.recurrence import occurrences
 from bot.users.models import User
 
 GENERATION_WEEKS = 4
+MAX_LEVEL_NAME = 50
 
 
 @dataclass
@@ -73,9 +74,22 @@ class ScheduleService:
         name = name.strip()
         if not name:
             raise InvalidAction("Название уровня не может быть пустым")
+        if len(name) > MAX_LEVEL_NAME:
+            raise InvalidAction(f"Название уровня длиннее {MAX_LEVEL_NAME} символов")
+        if await self.session.scalar(select(Level.id).where(Level.name == name)) is not None:
+            raise InvalidAction(f"Уровень «{name}» уже есть")
         level = Level(name=name, position=position)
         self.session.add(level)
         await self.session.commit()
+        return level
+
+    async def list_levels(self) -> list[Level]:
+        return list(await self.session.scalars(select(Level).order_by(Level.position, Level.name)))
+
+    async def get_level(self, level_id: int) -> Level:
+        level = await self.session.get(Level, level_id)
+        if level is None:
+            raise NotFound("Уровень не найден")
         return level
 
     async def bind_chat(self, actor: User, chat_id: int, title: str, level_name: str) -> Chat:

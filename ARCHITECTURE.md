@@ -125,7 +125,17 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   2. `clear_state_on_command` (outer, на `dp.message`) — любая `/команда` сбрасывает открытую форму/выбор/ввод
      и проваливается в свой обработчик;
   3. `AccessMiddleware` (на message и callback_query) — см. §6.
-- **Роутеры** подключаются в порядке: `trainer_forms`, `common`, `picker`, `park`, `admin`, `chats`, `profile`, `my`,
+- **Главное меню** (`bot/telegram/menu.py`, `handlers/common.py`): `/start` присылает кнопки по роли
+  (`main_menu`): «📅 Расписание», «📋 Мои записи», «👤 Профиль» всем, «🎓 Тренер» тренерам и админам, «⚙️ Админ»
+  админам. Колбэки `menu:*` сбрасывают FSM; расписание, записи и профиль показывают общие функции
+  `send_schedule` / `send_my` / `send_profile` (их же вызывают команды), меню тренера и админа правят сообщение и
+  проверяют роль на сервере (`ensure_trainer`, `require_admin`). `ADMIN_MENU` и `TRAINER_MENU` кончаются строкой
+  «⬅️ Главное меню» (`menu:back`). Меню команд Telegram — `BOT_COMMANDS` (`/start`, `/whoami`), остальные команды
+  работают, но не рекламируются.
+- **Привязка чата** (`handlers/binding.py`, префикс `bind:`, группы): `/bind_level` без аргумента присылает
+  уровни кнопками, `bind:<id>` привязывает через `ScheduleService.bind_chat`; с аргументом — по названию.
+  Вынесено из `admin.py`, чей роутер пропускает колбэки только из личного чата.
+- **Роутеры** подключаются в порядке: `trainer_forms`, `common`, `binding`, `picker`, `park`, `admin`, `chats`, `profile`, `my`,
   `inventory`, `schedule`, `trainer`, `participation`. `trainer_forms` — первым, потому что владеет `tr:new:*`, а у
   `trainer` есть catch-all `tr:`; по той же причине `inventory` (владеет `tr:inv:*`) стоит раньше `trainer`, а `park`
   (владеет `ad:park`, `ad:pk*`) — раньше `admin` с его catch-all `ad:`. Каждый роутер заканчивается stateless-обработчиком своего префикса `<prefix>:`,
