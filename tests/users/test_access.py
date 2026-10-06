@@ -54,10 +54,19 @@ async def test_telegram_error_in_one_chat_does_not_break_the_check(session):
     assert await svc(session, checker).can_use(6, NOW) is False
 
 
-async def test_mark_member_is_proof_without_checking(session):
+async def test_mark_member_in_bound_chat_is_proof_without_checking(session):
     await with_chats(session, -1)
     checker = FakeMembership()
     cache: dict = {}
-    svc(session, checker, cache).mark_member(9, NOW)
+    assert await svc(session, checker, cache).mark_member(-1, 9, NOW) is True
     assert await svc(session, checker, cache).can_use(9, NOW) is True
     assert checker.calls == 0
+
+
+async def test_mark_member_in_unbound_chat_grants_nothing(session):
+    await with_chats(session, -1)
+    checker = FakeMembership()
+    cache: dict = {}
+    assert await svc(session, checker, cache).mark_member(-999, 9, NOW) is False
+    assert cache == {}
+    assert await svc(session, checker, cache).can_use(9, NOW) is False

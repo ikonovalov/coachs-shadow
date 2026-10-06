@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 
 from aiogram import F, Router
@@ -11,7 +12,20 @@ from bot.telegram.ui import markup
 from bot.users.models import User
 from bot.users.service import UserService
 
+log = logging.getLogger(__name__)
+
 router = Router()
+
+CANCEL = [("✖️ Отмена", "pk:cancel")]
+
+
+@router.message.outer_middleware()
+async def drop_picker_on_command(handler, event, data):
+    """A command typed during the picker leaves it and falls through to the normal handlers."""
+    state = data.get("state")
+    if state is not None and (event.text or "").startswith("/") and await state.get_state() == Picker.query.state:
+        await state.clear()
+    return await handler(event, data)
 
 PickHandler = Callable[[CallbackQuery, AsyncSession, User, Messenger, dict, int], Awaitable[None]]
 PICK_HANDLERS: dict[str, PickHandler] = {}
@@ -38,18 +52,18 @@ async def start_picker(
     await state.set_state(Picker.query)
     await state.update_data(purpose=purpose, ctx=ctx, roles=sorted(roles) if roles else None)
     message = target.message if isinstance(target, CallbackQuery) else target
-    await message.answer(f"{prompt}\nНапишите часть имени.")
+    await message.answer(f"{prompt}\nНапишите часть имени.", reply_markup=markup(CANCEL))
     if isinstance(target, CallbackQuery):
         await target.answer()
 
 
-@router.message(Picker.query, F.text)
+@router.message(Picker.query, F.text, ~F.text.startswith("/"))
 async def on_query(message: Message, state: FSMContext, session: AsyncSession) -> None:
     data = await state.get_data()
     roles = set(data["roles"]) if data.get("roles") else None
     found = await UserService(session).search(message.text, roles=roles)
     if not found:
-        await message.answer("Никого не нашёл. Попробуйте другое имя.")
+        await message.answer("Никого не нашёл. Попробуйте другое имя.", reply_markup=markup(CANCEL))
         return
     rows = [[(u.name, f"pk:{u.telegram_id}")] for u in found]
     rows.append([("✖️ Отмена", "pk:cancel")])
@@ -69,5 +83,14 @@ async def on_picked(
 ) -> None:
     data = await state.get_data()
     await state.clear()
-    handler = PICK_HANDLERS[data["purpose"]]
+    handler = PICK_HANDLERS.get(data.get("purpose"))
+    if handler is None:
+        log.error("no pick handler for purpose %r", data.get("purpose"))
+        await cb.answer()
+        return
     await handler(cb, session, user, messenger, data["ctx"], int(cb.data.split(":", 1)[1]))
+
+
+@router.callback_query(F.data.startswith("pk:"))
+async def on_stale_pick(cb: CallbackQuery) -> None:
+    await cb.answer()

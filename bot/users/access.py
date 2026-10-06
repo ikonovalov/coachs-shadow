@@ -27,9 +27,13 @@ class AccessService:
         self.cache = cache
         self.ttl = ttl
 
-    def mark_member(self, user_id: int, now: datetime) -> None:
-        """A button press inside a bound chat proves membership."""
+    async def mark_member(self, chat_id: int, user_id: int, now: datetime) -> bool:
+        """A button press inside a BOUND chat proves membership. Returns False for unbound chats."""
+        bound = await self.session.scalar(select(Chat.chat_id).where(Chat.chat_id == chat_id))
+        if bound is None:
+            return False
         self.cache[user_id] = (True, now)
+        return True
 
     async def can_use(self, user_id: int, now: datetime) -> bool:
         if user_id in self.admin_ids:

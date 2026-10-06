@@ -51,7 +51,7 @@ class AccessMiddleware(BaseMiddleware):
         service = AccessService(data["session"], self.checker, self.admin_ids, self.cache)
         if chat.type != "private":
             if isinstance(event, CallbackQuery):
-                service.mark_member(user.telegram_id, utcnow())
+                await service.mark_member(chat.id, user.telegram_id, utcnow())
             return await handler(event, data)
         if self._exempt(event):
             return await handler(event, data)
