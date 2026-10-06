@@ -4,9 +4,10 @@ from enum import Enum
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.core.errors import InvalidAction, NotFound
+from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.participation.models import Participation, ParticipationStatus
 from bot.schedule.models import Training, TrainingStatus
+from bot.schedule.service import ScheduleService
 from bot.users.models import User
 
 
@@ -14,6 +15,7 @@ class JoinOutcome(str, Enum):
     JOINED = "joined"
     ALREADY = "already"
     FULL = "full"
+    OVER_LIMIT = "over_limit"
 
 
 class ParticipationService:
@@ -51,6 +53,46 @@ class ParticipationService:
             row.updated_at = now
         await self.session.commit()
         return previous
+
+    async def manual_add(
+        self, actor: User, training_id: int, user_id: int, now: datetime, *, allow_over_limit: bool = False
+    ) -> JoinOutcome:
+        training = await self._open_training(training_id, now)
+        if not await ScheduleService(self.session).can_manage(actor, training):
+            raise PermissionDenied("Нет прав на эту тренировку")
+        if await self.session.get(User, user_id) is None:
+            raise NotFound("Пользователь не найден")
+        row = await self.session.get(Participation, (training_id, user_id))
+        if row is not None and row.status == ParticipationStatus.GOING:
+            return JoinOutcome.ALREADY
+        full = training.capacity is not None and await self.going_count(training_id) >= training.capacity
+        if full and not allow_over_limit:
+            return JoinOutcome.OVER_LIMIT
+        if row is None:
+            self.session.add(
+                Participation(
+                    training_id=training_id, user_id=user_id, status=ParticipationStatus.GOING,
+                    updated_at=now, added_by=actor.telegram_id,
+                )
+            )
+        else:
+            row.status = ParticipationStatus.GOING
+            row.updated_at = now
+            row.added_by = actor.telegram_id
+        await self.session.commit()
+        return JoinOutcome.JOINED
+
+    async def manual_remove(self, actor: User, training_id: int, user_id: int, now: datetime) -> bool:
+        training = await self._open_training(training_id, now)
+        if not await ScheduleService(self.session).can_manage(actor, training):
+            raise PermissionDenied("Нет прав на эту тренировку")
+        row = await self.session.get(Participation, (training_id, user_id))
+        if row is None or row.status != ParticipationStatus.GOING:
+            return False
+        row.status = ParticipationStatus.DECLINED
+        row.updated_at = now
+        await self.session.commit()
+        return True
 
     async def going_count(self, training_id: int) -> int:
         return await self.session.scalar(
