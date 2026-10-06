@@ -47,10 +47,10 @@ async def set_setting_if_absent(session: AsyncSession, key: str, value: str) -> 
 def validate_setting(key: str, value: str) -> str:
     value = value.strip()
     if key in ("publish_window_h", "reminder_h", "duration_min"):
-        if not value.isdigit() or int(value) < 1:
+        if not value.isascii() or not value.isdigit() or int(value) < 1:
             raise InvalidAction("Нужно целое число больше нуля")
     elif key == "inventory_deadline_h":
-        if value and not value.isdigit():
+        if value and not (value.isascii() and value.isdigit()):
             raise InvalidAction("Нужно целое число часов или пусто (без ограничения)")
     elif key == "club_timezone":
         try:

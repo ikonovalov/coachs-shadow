@@ -75,7 +75,7 @@ def parse_capacity(text: str) -> int | None:
     value = text.strip().lower()
     if value in _NO:
         return None
-    if not value.isdigit() or int(value) < 1:
+    if not value.isascii() or not value.isdigit() or int(value) < 1:
         raise InvalidAction("Введите целое число больше нуля или «-» без лимита")
     return int(value)
 
@@ -87,6 +87,13 @@ def parse_kind(text: str) -> str:
     if value in TrainingKind.ALL:
         return value
     raise InvalidAction("Тип: интервалы, длительная или техника")
+
+
+def parse_place(text: str) -> str:
+    value = text.strip()
+    if not value or value.lower() in _NO:
+        raise InvalidAction("Место не может быть пустым")
+    return value
 
 
 def build_series_input(data: dict) -> SeriesInput:
@@ -125,7 +132,7 @@ def summarize_series(inp: SeriesInput, level_names: list[str]) -> str:
 
 def apply_series_field(inp: SeriesInput, field: str, text: str, today: date) -> SeriesInput:
     if field == "place":
-        return replace(inp, place=text.strip())
+        return replace(inp, place=parse_place(text))
     if field == "description":
         return replace(inp, description="" if text.strip() in _NO else text.strip())
     if field == "capacity":
@@ -143,7 +150,7 @@ def apply_series_field(inp: SeriesInput, field: str, text: str, today: date) -> 
 
 def apply_training_field(field: str, text: str) -> TrainingEdit:
     if field == "place":
-        return TrainingEdit(place=text.strip())
+        return TrainingEdit(place=parse_place(text))
     if field == "description":
         return TrainingEdit(description="" if text.strip() in _NO else text.strip())
     if field == "capacity":

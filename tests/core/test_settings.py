@@ -33,3 +33,10 @@ def test_validate_setting():
             validate_setting(key, bad)
     with pytest.raises(KeyError):
         validate_setting("nope", "1")
+
+
+@pytest.mark.parametrize("key", ["publish_window_h", "reminder_h", "duration_min", "inventory_deadline_h"])
+@pytest.mark.parametrize("bad", ["²", "³"])
+def test_validate_setting_rejects_superscript_digits(key, bad):
+    with pytest.raises(InvalidAction):
+        validate_setting(key, bad)

@@ -116,3 +116,17 @@ def test_apply_training_field():
     assert apply_training_field("description", "Дождь") == TrainingEdit(description="Дождь")
     assert apply_training_field("capacity", "4") == TrainingEdit(capacity=4)
     assert apply_training_field("capacity", "-") == TrainingEdit(clear_capacity=True)
+
+
+@pytest.mark.parametrize("bad", ["²", "³", "١٢"])
+def test_parse_capacity_rejects_non_ascii_digits(bad):
+    with pytest.raises(InvalidAction):
+        parse_capacity(bad)
+
+
+@pytest.mark.parametrize("empty", ["", "   ", "-"])
+def test_empty_place_is_rejected(empty):
+    with pytest.raises(InvalidAction, match="Место"):
+        apply_series_field(base(), "place", empty, TODAY)
+    with pytest.raises(InvalidAction, match="Место"):
+        apply_training_field("place", empty)
