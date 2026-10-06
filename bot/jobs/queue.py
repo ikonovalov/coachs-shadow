@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.jobs.models import ScheduledJob
@@ -38,6 +38,10 @@ async def cancel_for_training(session: AsyncSession, training_id: int, now: date
         .where(ScheduledJob.training_id == training_id, ScheduledJob.done_at.is_(None))
         .values(done_at=now)
     )
+
+
+async def delete_for_training(session: AsyncSession, training_id: int) -> None:
+    await session.execute(delete(ScheduledJob).where(ScheduledJob.training_id == training_id))
 
 
 async def due_job_ids(session: AsyncSession, now: datetime, limit: int = 100) -> list[int]:
