@@ -1,9 +1,11 @@
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.db import utcnow
+from bot.telegram.handlers.inventory import begin_inventory
 from bot.users.models import User
 from bot.users.roles import RoleService
 
@@ -11,11 +13,16 @@ router = Router()
 
 
 @router.message(CommandStart(deep_link=True), F.chat.type == "private")
-async def cmd_start_link(message: Message, command: CommandObject, session: AsyncSession, user: User) -> None:
+async def cmd_start_link(
+    message: Message, command: CommandObject, session: AsyncSession, user: User, state: FSMContext
+) -> None:
     arg = command.args or ""
     if arg.startswith("trainer_"):
         await RoleService(session).redeem_invite(arg[len("trainer_"):], user, utcnow())
         await message.answer("Вы назначены тренером. Меню тренера (/trainer) откроется, когда администратор добавит вас в чат клуба.")
+        return
+    if arg.startswith("inv_") and arg[4:].isdigit() and arg[4:].isascii():  # «🚲 Инвентарь» из группы
+        await begin_inventory(message, state, session, user, int(arg[4:]))
         return
     await cmd_start(message, user)
 

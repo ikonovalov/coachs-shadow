@@ -121,6 +121,7 @@ async def on_detail(cb: CallbackQuery, session: AsyncSession, user: User, messen
         [("✏️ Место", f"tr:edit:{tid}:place"), ("✏️ Описание", f"tr:edit:{tid}:description"),
          ("✏️ Лимит", f"tr:edit:{tid}:capacity")],
         [("👥 Участники", f"tr:who:{tid}")],
+        [("🚲 Инвентарь", f"tr:inv:{tid}")],
     ]
     series = await session.get(TrainingSeries, training.series_id)
     if series is not None and can_edit_series(user, series):

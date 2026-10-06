@@ -29,7 +29,7 @@ flowchart TB
     TG[(Telegram)]
     subgraph TL["bot/telegram — единственный слой с aiogram"]
         MW["middlewares<br/>DbSession · clear_state_on_command · Access"]
-        H["handlers<br/>common · picker · admin · chats · profile · my<br/>schedule · trainer · trainer_forms · participation"]
+        H["handlers<br/>common · picker · admin · chats · profile · my · inventory<br/>schedule · trainer · trainer_forms · participation"]
         AM["AiogramMessenger / AiogramMembership"]
     end
     UC["bot/usecases.py<br/>сквозные операции"]
@@ -117,8 +117,8 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
      и проваливается в свой обработчик;
   3. `AccessMiddleware` (на message и callback_query) — см. §6.
 - **Роутеры** подключаются в порядке: `trainer_forms`, `common`, `picker`, `admin`, `chats`, `profile`, `my`,
-  `schedule`, `trainer`, `participation`. `trainer_forms` — первым, потому что владеет `tr:new:*`, а у `trainer` есть
-  catch-all `tr:`. Каждый роутер заканчивается stateless-обработчиком своего префикса `<prefix>:`,
+  `inventory`, `schedule`, `trainer`, `participation`. `trainer_forms` — первым, потому что владеет `tr:new:*`, а у
+  `trainer` есть catch-all `tr:`; по той же причине `inventory` (владеет `tr:inv:*`) стоит раньше `trainer`. Каждый роутер заканчивается stateless-обработчиком своего префикса `<prefix>:`,
   отвечающим на устаревшие кнопки.
 - **Профиль и «Мои записи»** (только личка): `/profile` (`handlers/profile.py`, префикс `pf:`) — рост и размер
   ноги вводятся текстом в состоянии `ProfileInput.value` (неверный ввод → подсказка из `DomainError`, состояние
@@ -126,6 +126,17 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   `/my` (`handlers/my.py`, префикс `my:`) — будущие тренировки с записью (`ParticipationService.my_upcoming`)
   и активные заказы инвентаря с кнопками отмены (`InventoryService.cancel_order` сам проверяет владельца,
   время старта и повторное нажатие).
+- **Заказ инвентаря** (`handlers/inventory.py`, префиксы `inv:` / `iv:`, состояния `InventoryFlow`). Кнопка
+  «🚲 Инвентарь» на карточке (`inv:<id>`) в группе отвечает ссылкой `t.me/<bot>?start=inv_<id>` («Продолжим в личке»),
+  диплинк `inv_<id>` в `common.py` и та же кнопка в личке вызывают `begin_inventory`; незаписанному предлагается
+  сначала записаться (`NotGoing` → кнопка `join:<id>`). Шаги (`_advance`): виды → тип педалей → «туфли свои или из
+  парка» (только если педали из парка, а туфли нет) → шипы своих туфель (сохраняются в профиль; несовместимы с
+  педалями — бот сразу говорит об этом и снова спрашивает педали) → недостающие рост/размер ноги (текстом, как в
+  `/profile`) и шлем (кнопками) → `InventoryService.suggest` и обзор. «Подтвердить» забирает форму (`take_form`) и
+  вызывает `confirm`; если часть единиц успели забрать (`ConfirmResult.conflicts`), подтверждённое остаётся, а
+  замена подбирается только для этих видов — с тем же `pedal_type` из FSM (типом уже взятых педалей), потому что
+  `confirm` сверяет совместимость педалей и туфель только внутри одного вызова. Сводка заказов для тренера —
+  кнопка `tr:inv:<id>` на экране тренировки (права проверяет `training_summary`).
 - **Формы и повторные нажатия.** Апдейты обрабатываются параллельно, поэтому подтверждающие
   обработчики сначала «забирают» форму (`take_form`), затем вызывают сервис, и при `DomainError`
   возвращают её (`restore_form`) — двойной тап не выполнит действие дважды. Экраны правятся через `safe_edit`.
