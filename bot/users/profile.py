@@ -18,7 +18,7 @@ def parse_height(text: str) -> int:
 
 def parse_foot(text: str) -> int:
     value = text.strip()
-    if value.isdigit() and 30 <= int(value) <= 52:
+    if re.fullmatch(r"[0-9]{2}", value) and 30 <= int(value) <= 52:  # не isdigit(): «⁴²» — digit, но int() падает
         return int(value)
     raise InvalidAction("Введите размер ноги (EU), например 42")
 

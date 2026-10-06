@@ -29,7 +29,7 @@ flowchart TB
     TG[(Telegram)]
     subgraph TL["bot/telegram — единственный слой с aiogram"]
         MW["middlewares<br/>DbSession · clear_state_on_command · Access"]
-        H["handlers<br/>common · picker · admin · chats · schedule<br/>trainer · trainer_forms · participation"]
+        H["handlers<br/>common · picker · admin · chats · profile · my<br/>schedule · trainer · trainer_forms · participation"]
         AM["AiogramMessenger / AiogramMembership"]
     end
     UC["bot/usecases.py<br/>сквозные операции"]
@@ -116,10 +116,16 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   2. `clear_state_on_command` (outer, на `dp.message`) — любая `/команда` сбрасывает открытую форму/выбор/ввод
      и проваливается в свой обработчик;
   3. `AccessMiddleware` (на message и callback_query) — см. §6.
-- **Роутеры** подключаются в порядке: `trainer_forms`, `common`, `picker`, `admin`, `chats`, `schedule`,
-  `trainer`, `participation`. `trainer_forms` — первым, потому что владеет `tr:new:*`, а у `trainer` есть
+- **Роутеры** подключаются в порядке: `trainer_forms`, `common`, `picker`, `admin`, `chats`, `profile`, `my`,
+  `schedule`, `trainer`, `participation`. `trainer_forms` — первым, потому что владеет `tr:new:*`, а у `trainer` есть
   catch-all `tr:`. Каждый роутер заканчивается stateless-обработчиком своего префикса `<prefix>:`,
   отвечающим на устаревшие кнопки.
+- **Профиль и «Мои записи»** (только личка): `/profile` (`handlers/profile.py`, префикс `pf:`) — рост и размер
+  ноги вводятся текстом в состоянии `ProfileInput.value` (неверный ввод → подсказка из `DomainError`, состояние
+  сохраняется), шлем и тип шипов — кнопками; разбор и проверка значений — в `UserService.update_profile`.
+  `/my` (`handlers/my.py`, префикс `my:`) — будущие тренировки с записью (`ParticipationService.my_upcoming`)
+  и активные заказы инвентаря с кнопками отмены (`InventoryService.cancel_order` сам проверяет владельца,
+  время старта и повторное нажатие).
 - **Формы и повторные нажатия.** Апдейты обрабатываются параллельно, поэтому подтверждающие
   обработчики сначала «забирают» форму (`take_form`), затем вызывают сервис, и при `DomainError`
   возвращают её (`restore_form`) — двойной тап не выполнит действие дважды. Экраны правятся через `safe_edit`.

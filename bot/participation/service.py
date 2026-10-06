@@ -88,6 +88,21 @@ class ParticipationService:
             (going if status == ParticipationStatus.GOING else declined).append(user)
         return going, declined
 
+    async def my_upcoming(self, user_id: int, now: datetime, limit: int = 15) -> list[tuple[Training, str]]:
+        """Будущие запланированные тренировки, где у пользователя есть запись (going / declined), по времени."""
+        rows = await self.session.execute(
+            select(Training, Participation.status)
+            .join(Participation, Participation.training_id == Training.id)
+            .where(
+                Participation.user_id == user_id,
+                Training.status == TrainingStatus.SCHEDULED,
+                Training.starts_at > now,
+            )
+            .order_by(Training.starts_at, Training.id)
+            .limit(limit)
+        )
+        return [(training, status) for training, status in rows]
+
     async def _take_seat(
         self, training: Training, user_id: int, now: datetime, *, enforce_capacity: bool, added_by: int | None = None
     ) -> JoinOutcome:

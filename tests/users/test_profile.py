@@ -19,9 +19,14 @@ def test_parse_height_rejects_garbage(bad):
 
 def test_parse_foot():
     assert parse_foot("42") == 42
-    for bad in ("7", "99", "сорок два", ""):
+    for bad in ("7", "99", "сорок два", "", "⁴²", "4²"):  # надстрочные цифры: isdigit() да, int() — ValueError
         with pytest.raises(InvalidAction, match="размер"):
             parse_foot(bad)
+
+
+def test_parse_height_rejects_superscript_digits():
+    with pytest.raises(InvalidAction):
+        parse_height("¹⁷⁵")
 
 
 def test_parse_helmet_accepts_latin_and_cyrillic():
