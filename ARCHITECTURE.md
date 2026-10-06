@@ -116,9 +116,10 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   2. `clear_state_on_command` (outer, на `dp.message`) — любая `/команда` сбрасывает открытую форму/выбор/ввод
      и проваливается в свой обработчик;
   3. `AccessMiddleware` (на message и callback_query) — см. §6.
-- **Роутеры** подключаются в порядке: `trainer_forms`, `common`, `picker`, `admin`, `chats`, `profile`, `my`,
+- **Роутеры** подключаются в порядке: `trainer_forms`, `common`, `picker`, `park`, `admin`, `chats`, `profile`, `my`,
   `inventory`, `schedule`, `trainer`, `participation`. `trainer_forms` — первым, потому что владеет `tr:new:*`, а у
-  `trainer` есть catch-all `tr:`; по той же причине `inventory` (владеет `tr:inv:*`) стоит раньше `trainer`. Каждый роутер заканчивается stateless-обработчиком своего префикса `<prefix>:`,
+  `trainer` есть catch-all `tr:`; по той же причине `inventory` (владеет `tr:inv:*`) стоит раньше `trainer`, а `park`
+  (владеет `ad:park`, `ad:pk*`) — раньше `admin` с его catch-all `ad:`. Каждый роутер заканчивается stateless-обработчиком своего префикса `<prefix>:`,
   отвечающим на устаревшие кнопки.
 - **Профиль и «Мои записи»** (только личка): `/profile` (`handlers/profile.py`, префикс `pf:`) — рост и размер
   ноги вводятся текстом в состоянии `ProfileInput.value` (неверный ввод → подсказка из `DomainError`, состояние
@@ -140,6 +141,12 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   для подбора туфель, шипы взятых туфель — для проверки новых педалей. «Отмена» вне диалога отвечает «кнопка
   устарела» (заказы отменяются в `/my`). Сводка заказов для тренера —
   кнопка `tr:inv:<id>` на экране тренировки (права проверяет `training_summary`).
+- **Парк инвентаря** (`handlers/park.py`, только личка): `/admin` → «🚲 Парк инвентаря» (`ad:park`) — список
+  единиц; кнопка единицы `ad:pk:<id>:<0|1>` несёт целевое состояние (вывести из парка / вернуть), поэтому повторный
+  тап по старой кнопке ничего не переключает обратно. «➕ Добавить» (`ad:pka`) → вид (`ad:pkk:<kind>`) → одна
+  строка через «;» в состоянии `ParkInput.line`, разбор — `inventory/items.parse_item_line` (формат —
+  `ITEM_FORMATS`); неверная строка → подсказка формата, состояние сохраняется. Права (только админ) проверяют
+  `InventoryService.add_item` / `set_active`.
 - **Формы и повторные нажатия.** Апдейты обрабатываются параллельно, поэтому подтверждающие
   обработчики сначала «забирают» форму (`take_form`), затем вызывают сервис, и при `DomainError`
   возвращают её (`restore_form`) — двойной тап не выполнит действие дважды. Экраны правятся через `safe_edit`.
@@ -189,9 +196,8 @@ erDiagram
   Правила повторения (`schedule/recurrence.py`) вычисляются в `club_timezone` (настройка в БД, при старте
   инициализируется из конфигурации, если её ещё нет).
 - **Настройки в БД** (`settings`): `publish_window_h` (24), `reminder_h` (2), `duration_min` (90),
-  `inventory_deadline_h`, `club_timezone`; значения по умолчанию — в `DEFAULTS`, валидация — `validate_setting`.
-- Поля профиля инвентаря в `User` (рост, размер ноги/шлема, тип педалей) заведены, но функциональность —
-  в плане `inventory-profile`, пока не реализована.
+  `inventory_deadline_h` (пусто — без дедлайна заказа инвентаря; в `/admin` → «⚙️ Настройки» вводится «-» или
+  «нет»), `club_timezone`; значения по умолчанию — в `DEFAULTS`, валидация — `validate_setting`.
 - Новые модели обязательно импортировать в `bot/registry.py`, иначе Alembic их не увидит.
 
 ## 6. Роли и доступ
@@ -288,7 +294,8 @@ pysqlite выполняет SELECT вне транзакции, поэтому �
 ## 10. Конфигурация и запуск
 
 Порядок старта (`bot/main.py`): `Config()` → `setup_logging` → engine и session factory → `bootstrap`
-(синхронизация админов, часовой пояс, `generate`-задача) → `Bot` + `Dispatcher` (middleware, роутеры) →
+(синхронизация админов, часовой пояс, `generate`-задача, таблица совместимости шипов и педалей —
+`ensure_cleat_compat`, идемпотентно) → `Bot` + `Dispatcher` (middleware, роутеры) →
 `scheduler_loop` в `asyncio.create_task` → `dp.start_polling`. При остановке планировщик отменяется, engine
 закрывается.
 

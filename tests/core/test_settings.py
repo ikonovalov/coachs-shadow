@@ -35,6 +35,14 @@ def test_validate_setting():
         validate_setting("nope", "1")
 
 
+def test_inventory_deadline_accepts_dash_as_no_limit():
+    assert validate_setting("inventory_deadline_h", "-") == ""
+    assert validate_setting("inventory_deadline_h", "нет") == ""
+    assert validate_setting("inventory_deadline_h", " 3 ") == "3"
+    with pytest.raises(InvalidAction):
+        validate_setting("inventory_deadline_h", "три")
+
+
 @pytest.mark.parametrize("key", ["publish_window_h", "reminder_h", "duration_min", "inventory_deadline_h"])
 @pytest.mark.parametrize("bad", ["²", "³"])
 def test_validate_setting_rejects_superscript_digits(key, bad):

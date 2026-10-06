@@ -25,12 +25,14 @@ router.callback_query.filter(F.message.chat.type == "private")  # admin menus li
 ADMIN_MENU = markup(
     [("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins")],
     [("🎚 Уровни", "ad:levels"), ("💬 Чаты", "ch:list")],
+    [("🚲 Парк инвентаря", "ad:park")],
     [("🔗 Приглашение тренера", "ad:invite"), ("⚙️ Настройки", "ad:settings")],
 )
 SETTING_LABELS = {
     "publish_window_h": "За сколько часов публиковать пост",
     "reminder_h": "За сколько часов напоминать в личку",
     "duration_min": "Длительность по умолчанию, мин",
+    "inventory_deadline_h": "Дедлайн заказа инвентаря, ч до старта («-» — нет)",
     "club_timezone": "Часовой пояс клуба",
 }
 
@@ -225,7 +227,7 @@ async def on_settings(cb: CallbackQuery, session: AsyncSession, user: User) -> N
     require_admin(user)
     rows = []
     for key, label in SETTING_LABELS.items():
-        rows.append([(f"{label}: {await get_setting(session, key)}", f"ad:set:{key}")])
+        rows.append([(f"{label}: {(await get_setting(session, key)) or 'нет'}", f"ad:set:{key}")])
     rows.append([("⬅️ Меню", "ad:menu")])
     await safe_edit(cb.message, "Настройки (нажмите, чтобы изменить):", reply_markup=markup(*rows))
     await cb.answer()

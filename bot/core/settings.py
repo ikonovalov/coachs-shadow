@@ -50,8 +50,10 @@ def validate_setting(key: str, value: str) -> str:
         if not value.isascii() or not value.isdigit() or int(value) < 1:
             raise InvalidAction("Нужно целое число больше нуля")
     elif key == "inventory_deadline_h":
-        if value and not (value.isascii() and value.isdigit()):
-            raise InvalidAction("Нужно целое число часов или пусто (без ограничения)")
+        if value.lower() in ("-", "нет"):
+            value = ""  # без ограничения
+        elif value and not (value.isascii() and value.isdigit()):
+            raise InvalidAction("Нужно целое число часов или «-» (без ограничения)")
     elif key == "club_timezone":
         try:
             ZoneInfo(value)
