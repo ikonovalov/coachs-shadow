@@ -2,15 +2,18 @@
 for state-changing actions that must also update posts."""
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.messenger import Messenger
-from bot.inventory.models import InventoryItem
+from bot.core.settings import get_setting
+from bot.inventory.models import InventoryItem, InventoryOrder
 from bot.inventory.service import InventoryService
 from bot.participation.models import ParticipationStatus
 from bot.participation.service import JoinOutcome, ParticipationService
+from bot.publishing.render import format_when
 from bot.publishing.service import PublishService
 from bot.schedule.models import Training
 from bot.schedule.service import ReplacedTraining, ScheduleService, SeriesInput, TrainingEdit
@@ -33,8 +36,49 @@ async def _cancel_participant_orders(
         )
     )
     log.info("cancelled %d inventory orders training=%s user=%s", len(orders), training_id, user_id)
-    if not await messenger.notify(user_id, "Заказы инвентаря на тренировку отменены: " + ", ".join(labels)):
-        log.info("inventory cancel notice not delivered to %s", user_id)
+    await _notify_quietly(messenger, user_id, "Заказы инвентаря на тренировку отменены: " + ", ".join(labels))
+
+
+async def _notify_quietly(messenger: Messenger, user_id: int, text: str) -> None:
+    """Уведомление после уже закоммиченного изменения: сбой доставки логируется и не прерывает use case
+    (обновление постов и остальные уведомления должны выполниться)."""
+    try:
+        delivered = await messenger.notify(user_id, text)
+    except Exception:
+        log.warning("notify to %s failed", user_id, exc_info=True)
+        return
+    if not delivered:
+        log.info("notice not delivered to %s", user_id)
+
+
+async def set_item_active(
+    session: AsyncSession, messenger: Messenger, actor: User, item_id: int, active: bool, now: datetime
+) -> tuple[InventoryItem, list[InventoryOrder]]:
+    """Вывод единицы из парка / возврат. При выводе её активные заказы на будущие тренировки отменяются,
+    каждому участнику приходит уведомление. Возврат больше ничего не меняет. Права (только админ) — в сервисе."""
+    inventory = InventoryService(session)
+    item = await inventory.set_active(actor, item_id, active)
+    if active:
+        return item, []
+    # новые заказы на выведенную единицу уже невозможны (_take_item проверяет active), отменяем существующие
+    cancelled = await inventory.cancel_for_item(actor, item_id, now)
+    log.info("item %s deactivated by %s, cancelled orders %s", item_id, actor.telegram_id, [o.id for o in cancelled])
+    if cancelled:
+        tz = ZoneInfo(await get_setting(session, "club_timezone"))
+        trainings = {
+            t.id: t for t in await session.scalars(
+                select(Training).where(Training.id.in_({o.training_id for o in cancelled}))
+            )
+        }
+        for order in cancelled:
+            training = trainings[order.training_id]
+            when = format_when(training.starts_at, training.duration_min, tz)
+            await _notify_quietly(
+                messenger, order.user_id,
+                f"Единицу «{item.label}» вывели из парка, поэтому её заказ на тренировку {when} отменён. "
+                "Подобрать замену можно кнопкой «🚲 Инвентарь» на карточке тренировки.",
+            )
+    return item, cancelled
 
 
 async def join_training(

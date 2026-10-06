@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.db import utcnow
-from bot.inventory.flow import MyEntry, render_my
+from bot.inventory.flow import MyEntry, MyOrder, cancel_buttons, render_my
 from bot.inventory.service import InventoryService
 from bot.participation.models import ParticipationStatus
 from bot.participation.service import ParticipationService
@@ -27,15 +27,18 @@ async def _render(session: AsyncSession, user: User) -> tuple[str, InlineKeyboar
     orders_by_training: dict[int, list[str]] = {}
     for view in views:
         orders_by_training.setdefault(view.training.id, []).append(view.item.label)
+    upcoming = await ParticipationService(session).my_upcoming(user.telegram_id, now)  # не больше 15
     entries = [
         MyEntry(
             short_title(t, tz),
             "идёте" if status == ParticipationStatus.GOING else "не идёте",
             orders_by_training.get(t.id, []),
         )
-        for t, status in await ParticipationService(session).my_upcoming(user.telegram_id, now)
+        for t, status in upcoming
     ]
-    rows = [[(f"🗑 Отменить: {v.item.label}", f"my:co:{v.order.id}")] for v in views]
+    orders = [MyOrder(v.order.id, v.training.id, v.training.starts_at, v.item.label) for v in views]
+    # кнопки — только для заказов на тренировки из текста, чтобы у каждой была своя строка
+    rows = [[button] for button in cancel_buttons(orders, {t.id for t, _ in upcoming}, tz)]
     return render_my(entries), markup(*rows) if rows else None
 
 

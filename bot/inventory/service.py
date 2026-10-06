@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.core.db import UTCDateTime
 from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.core.permissions import require_admin
-from bot.core.settings import get_setting
+from bot.core.settings import INVENTORY_DEADLINE_MAX_H, get_setting
 from bot.inventory.matching import (
     KIND_LABELS, PEDAL_TYPES, Candidate, Profile, Suggestion, Wanted, missing_profile_fields, own_shoes_problem,
     set_problems, suggest,
@@ -19,6 +20,8 @@ from bot.schedule.models import Training, TrainingStatus
 from bot.schedule.queries import can_manage
 from bot.users.models import User
 from bot.users.profile import CLEAT_TYPES, HELMET_SIZES
+
+log = logging.getLogger(__name__)
 
 _PARAM_FIELDS = {"frame", "height_min", "height_max", "shoe_eu", "cleat_type", "pedal_type", "helmet_size", "price_per_use"}
 
@@ -148,13 +151,24 @@ class InventoryService:
             raise NotFound("Тренировка не найдена")
         if training.status != TrainingStatus.SCHEDULED or training.starts_at <= now:
             raise InvalidAction("На эту тренировку инвентарь заказать уже нельзя")
-        deadline = await get_setting(self.session, "inventory_deadline_h")
-        if deadline and now > training.starts_at - timedelta(hours=int(deadline)):
+        deadline = await self._deadline_hours()
+        if deadline is not None and now > training.starts_at - timedelta(hours=deadline):
             raise InvalidAction(f"Приём заказов закрыт за {deadline} ч до тренировки")
         row = await self.session.get(Participation, (training_id, user_id))
         if row is None or row.status != ParticipationStatus.GOING:
             raise NotGoing("Сначала запишитесь на тренировку")
         return training
+
+    async def _deadline_hours(self) -> int | None:
+        """Дедлайн заказа в часах. validate_setting ограничивает его 0..720, но значение в БД могли записать
+        в обход: нечитаемое считается «без дедлайна», слишком большое ограничивается 720 ч (без OverflowError)."""
+        raw = (await get_setting(self.session, "inventory_deadline_h")).strip()
+        if not raw:
+            return None
+        if not (raw.isascii() and raw.isdigit()):
+            log.warning("ignoring unreadable inventory_deadline_h=%r", raw)
+            return None
+        return min(int(raw), INVENTORY_DEADLINE_MAX_H)
 
     async def _reject_kinds_already_ordered(self, training_id: int, user_id: int, kinds: set[str]) -> None:
         ordered = await self.session.scalars(
@@ -359,6 +373,13 @@ class InventoryService:
     async def cancel_for_training(self, training_id: int) -> list[InventoryOrder]:
         return await self._cancel_where(InventoryOrder.training_id == training_id)
 
+    async def cancel_for_item(self, actor: User, item_id: int, now: datetime) -> list[InventoryOrder]:
+        """Единицу вывели из парка: отменяет её активные заказы на будущие запланированные тренировки.
+        Прошедшие и уже идущие тренировки не трогает. Только админ (вызывается из usecases.set_item_active)."""
+        require_admin(actor)
+        future = select(Training.id).where(Training.status == TrainingStatus.SCHEDULED, Training.starts_at > now)
+        return await self._cancel_where(InventoryOrder.item_id == item_id, InventoryOrder.training_id.in_(future))
+
     # ---- сводка тренера ----
 
     async def training_summary(self, actor: User, training_id: int) -> list[OrderLine]:
@@ -368,7 +389,7 @@ class InventoryService:
         if not await can_manage(self.session, actor, training):
             raise PermissionDenied("Нет прав на эту тренировку")
         rows = await self.session.execute(
-            select(User.name, InventoryItem)
+            select(User.telegram_id, User.name, InventoryItem)
             .join(InventoryOrder, InventoryOrder.user_id == User.telegram_id)
             .join(InventoryItem, InventoryItem.id == InventoryOrder.item_id)
             .where(InventoryOrder.training_id == training_id, InventoryOrder.status == OrderStatus.ACTIVE)
@@ -376,8 +397,8 @@ class InventoryService:
         )
         return [
             OrderLine(
-                user_name=name, kind=item.kind, label=item.label, frame=item.frame,
+                user_id=user_id, user_name=name, kind=item.kind, label=item.label, frame=item.frame,
                 shoe_eu=item.shoe_eu, pedal_type=item.pedal_type, helmet_size=item.helmet_size,
             )
-            for name, item in rows
+            for user_id, name, item in rows
         ]

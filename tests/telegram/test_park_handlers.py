@@ -8,8 +8,14 @@ from bot.core.errors import InvalidAction, PermissionDenied
 from bot.inventory.service import InventoryService
 from bot.telegram.handlers import park as h
 from bot.telegram.states import ParkInput
-from tests.factories import add_item, add_user
-from tests.telegram.test_inventory_handlers import FakeCallback, FakeMessage, buttons
+from tests.factories import NOW, add_item, add_user
+from tests.fakes import FakeMessenger
+from tests.telegram.test_inventory_handlers import FakeCallback, FakeMessage, buttons, world
+
+
+@pytest.fixture(autouse=True)
+def fixed_now(monkeypatch):
+    monkeypatch.setattr(h, "utcnow", lambda: NOW)
 
 
 @pytest.fixture
@@ -56,7 +62,7 @@ async def test_member_cannot_add_or_toggle(session, state):
     with pytest.raises(PermissionDenied):
         await h.on_line(FakeMessage(text="Шлем №3; L"), state, session, member)
     with pytest.raises(PermissionDenied):
-        await h.on_toggle(FakeCallback(f"ad:pk:{item.id}:0"), session, member)
+        await h.on_toggle(FakeCallback(f"ad:pk:{item.id}:0"), session, member, FakeMessenger())
     assert [(i.label, i.active) for i in await items(session)] == [("Шлем №2", True)]
 
 
@@ -68,9 +74,24 @@ async def test_toggle_sets_target_state_and_repeated_tap_is_harmless(session, st
     assert cb.message.edits[-1].startswith("Парк инвентаря")
     for _ in range(2):  # двойной тап по «вывести» не возвращает единицу обратно
         cb = FakeCallback(f"ad:pk:{item.id}:0")
-        await h.on_toggle(cb, session, admin)
+        await h.on_toggle(cb, session, admin, FakeMessenger())
     await session.refresh(item)
     assert item.active is False
     assert cb.answers[-1]["text"] == "Выведено из парка"
     text, kb = await h.park_screen(session)
     assert f"ad:pk:{item.id}:1" in buttons(kb)
+
+
+async def test_deactivating_tells_the_admin_how_many_orders_were_cancelled(session):
+    t, rider = await world(session)
+    admin = await add_user(session, 99, "admin")
+    helmet = await add_item(session, "helmet", "Шлем №2", helmet_size="M")
+    await InventoryService(session).confirm(t.id, rider.telegram_id, [helmet.id], NOW)
+    messenger = FakeMessenger()
+    cb = FakeCallback(f"ad:pk:{helmet.id}:0")
+    await h.on_toggle(cb, session, admin, messenger)
+    assert cb.answers[-1]["text"] == "Выведено из парка. Отменено заказов: 1"
+    assert [uid for uid, _ in messenger.notifications] == [rider.telegram_id]
+    cb = FakeCallback(f"ad:pk:{helmet.id}:1")
+    await h.on_toggle(cb, session, admin, messenger)
+    assert cb.answers[-1]["text"] == "Возвращено в парк"

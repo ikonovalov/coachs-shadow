@@ -1,8 +1,11 @@
 from bot.inventory.summary import OrderLine, breakdown, summarize
 
 
-def line(user, kind, label, **kw):
-    return OrderLine(user_name=user, kind=kind, label=label, **kw)
+_IDS = {"Анна": 1, "Борис": 2, "Вера": 3}
+
+
+def line(user, kind, label, user_id=None, **kw):
+    return OrderLine(user_id=user_id or _IDS.get(user, hash(user)), user_name=user, kind=kind, label=label, **kw)
 
 
 LINES = [
@@ -36,3 +39,14 @@ def test_breakdown_per_participant():
     assert text.splitlines()[0] == "Анна: велосипед M (Велосипед №7), шлем M (Шлем №2)"
     assert "Борис: велосипед M (Велосипед №8), педали spd (Педали №2), туфли 42 (Туфли №5)" in text
     assert breakdown([]) == ""
+
+
+def test_helmet_sizes_sort_small_to_large_and_unknown_last():
+    helmets = [line(str(i), "helmet", "ш", helmet_size=size) for i, size in enumerate(["L", "M", None, "S", "M"])]
+    assert summarize(helmets) == "шлем S×1, M×2, L×1, None×1"
+
+
+def test_breakdown_keeps_same_named_riders_apart():
+    lines = [line("Иван", "bike", "Велосипед №1", user_id=1, frame="M"),
+             line("Иван", "bike", "Велосипед №2", user_id=2, frame="L")]
+    assert breakdown(lines).splitlines() == ["Иван: велосипед M (Велосипед №1)", "Иван: велосипед L (Велосипед №2)"]

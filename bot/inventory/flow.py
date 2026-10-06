@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from bot.inventory.matching import KIND_LABELS, MatchStatus, Suggestion
 
@@ -10,6 +12,23 @@ class MyEntry:
     title: str
     status: str  # «идёте» / «не идёте»
     orders: list[str]
+
+
+@dataclass(frozen=True)
+class MyOrder:
+    order_id: int
+    training_id: int
+    starts_at: datetime
+    label: str
+
+
+def cancel_buttons(orders: list[MyOrder], listed_training_ids: set[int], tz: ZoneInfo) -> list[tuple[str, str]]:
+    """Кнопки отмены для /my: только для тренировок, показанных в тексте, с датой и временем старта —
+    одна и та же единица на двух тренировках даёт разные кнопки."""
+    return [
+        (f"🗑 {o.starts_at.astimezone(tz):%d.%m %H:%M} · {o.label}", f"my:co:{o.order_id}")
+        for o in orders if o.training_id in listed_training_ids
+    ]
 
 
 def kinds_markup_data(selected: set[str]) -> list[tuple[str, str]]:

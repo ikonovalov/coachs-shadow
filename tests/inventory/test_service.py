@@ -337,3 +337,40 @@ async def test_confirm_checks_compat_with_gear_ordered_earlier(session):
         await svc.confirm(t.id, 1, [look.id], NOW)
     result = await svc.confirm(t.id, 1, [spd.id], NOW)
     assert [o.item_id for o in result.orders] == [spd.id]
+
+
+async def test_deadline_out_of_range_in_db_never_overflows(session):
+    """Значение, записанное в обход validate_setting, не роняет заказ OverflowError: оно ограничено 720 ч."""
+    _, _, t = await world(session)
+    user = await rider(session, 1, t)
+    await set_setting(session, "inventory_deadline_h", "99999999999")
+    with pytest.raises(InvalidAction, match="720"):
+        await InventoryService(session).check_can_order(t.id, user.telegram_id, NOW)
+    await set_setting(session, "inventory_deadline_h", "мусор")  # нечитаемое значение — без дедлайна
+    await InventoryService(session).check_can_order(t.id, user.telegram_id, NOW)
+
+
+# ---------- вывод единицы из парка ----------
+
+async def test_cancel_for_item_cancels_only_future_orders_of_that_item(session):
+    admin = await add_user(session, 99, "admin")
+    trainer, level, t = await world(session)
+    past = await add_training(
+        session, trainer=trainer, levels=[level], starts_at=NOW + timedelta(hours=1), published_at=NOW - timedelta(hours=2)
+    )
+    await rider(session, 1, t)
+    await rider(session, 2, t, going=False)
+    await ParticipationService(session).join(past.id, 2, NOW)
+    bike = await add_item(session, "bike", "Велосипед №1", frame="M", height_min=160, height_max=180)
+    helmet = await add_item(session, "helmet", "Шлем №1", helmet_size="M")
+    svc = InventoryService(session)
+    await svc.confirm(t.id, 1, [bike.id, helmet.id], NOW)
+    await svc.confirm(past.id, 2, [bike.id], NOW)  # past начинается раньше «сейчас» на момент вывода
+    later = NOW + timedelta(hours=2)
+    with pytest.raises(PermissionDenied):
+        await svc.cancel_for_item(trainer, bike.id, later)
+    cancelled = await svc.cancel_for_item(admin, bike.id, later)
+    assert [(o.training_id, o.user_id, o.item_id) for o in cancelled] == [(t.id, 1, bike.id)]
+    active = await session.scalars(select(InventoryOrder).where(InventoryOrder.status == OrderStatus.ACTIVE))
+    assert sorted((o.training_id, o.item_id) for o in active) == sorted([(t.id, helmet.id), (past.id, bike.id)])
+    assert await svc.cancel_for_item(admin, bike.id, later) == []  # повтор ничего не отменяет

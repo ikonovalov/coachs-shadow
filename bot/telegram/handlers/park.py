@@ -9,7 +9,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.core.db import utcnow
 from bot.core.errors import DomainError, InvalidAction
+from bot.core.messenger import Messenger
 from bot.core.permissions import require_admin
 from bot.inventory.items import ITEM_FORMATS, parse_item_line
 from bot.inventory.matching import KIND_LABELS
@@ -17,6 +19,7 @@ from bot.inventory.models import InventoryItem
 from bot.inventory.service import InventoryService
 from bot.telegram.states import ParkInput
 from bot.telegram.ui import markup, restore_form, safe_edit, take_form
+from bot.usecases import set_item_active
 from bot.users.models import User
 
 log = logging.getLogger(__name__)
@@ -58,13 +61,17 @@ async def on_park(cb: CallbackQuery, session: AsyncSession, user: User, state: F
 
 
 @router.callback_query(F.data.regexp(r"^ad:pk:\d+:[01]$"))
-async def on_toggle(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+async def on_toggle(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
     _, _, item_id, active = cb.data.split(":")
-    item = await InventoryService(session).set_active(user, int(item_id), active == "1")  # права — в сервисе
+    # права — в сервисе; при выводе из парка будущие заказы единицы отменяются, участники получают уведомление
+    item, cancelled = await set_item_active(session, messenger, user, int(item_id), active == "1", utcnow())
     log.info("inventory item %s active=%s by %s", item.id, item.active, user.telegram_id)
     text, kb = await park_screen(session)
     await safe_edit(cb.message, text, reply_markup=kb)
-    await cb.answer("Возвращено в парк" if item.active else "Выведено из парка")
+    if item.active:
+        await cb.answer("Возвращено в парк")
+    else:
+        await cb.answer("Выведено из парка" + (f". Отменено заказов: {len(cancelled)}" if cancelled else ""))
 
 
 @router.callback_query(F.data == "ad:pka")

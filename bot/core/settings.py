@@ -16,6 +16,9 @@ DEFAULTS: dict[str, str] = {
 }
 
 
+INVENTORY_DEADLINE_MAX_H = 720  # 30 суток: больше — заведомо опечатка (и timedelta переполнилась бы)
+
+
 class Setting(Base):
     __tablename__ = "settings"
 
@@ -52,8 +55,13 @@ def validate_setting(key: str, value: str) -> str:
     elif key == "inventory_deadline_h":
         if value.lower() in ("-", "нет"):
             value = ""  # без ограничения
-        elif value and not (value.isascii() and value.isdigit()):
-            raise InvalidAction("Нужно целое число часов или «-» (без ограничения)")
+        elif value and not (
+            value.isascii() and value.isdigit() and int(value) <= INVENTORY_DEADLINE_MAX_H
+        ):
+            raise InvalidAction(
+                f"Нужно целое число часов от 0 до {INVENTORY_DEADLINE_MAX_H} или «-» (без ограничения); "
+                "0 — заказ открыт до старта"
+            )
     elif key == "club_timezone":
         try:
             ZoneInfo(value)

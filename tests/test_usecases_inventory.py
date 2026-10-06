@@ -1,7 +1,10 @@
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
+
+from bot.core.errors import PermissionDenied
 
 from bot.inventory.models import InventoryOrder, OrderStatus, ensure_cleat_compat
 from bot.inventory.service import InventoryService
@@ -9,9 +12,10 @@ from bot.publishing.service import PublishService
 from bot.schedule.models import Training
 from bot.schedule.service import ScheduleService, SeriesInput, series_to_input
 from bot.usecases import (
-    cancel_trainings, decline_training, join_training, manual_remove_participant, update_series,
+    cancel_trainings, decline_training, join_training, manual_remove_participant, set_item_active, update_series,
 )
 from tests.factories import NOW, add_chat, add_item, add_level, add_training, add_user
+from tests.fakes import FakeMessenger
 
 STARTS = NOW + timedelta(hours=20)
 
@@ -101,3 +105,38 @@ async def test_series_edit_cancels_orders_of_replaced_trainings(session, messeng
     await InventoryService(session).confirm(t13.id, 1, [helmet.id], T1)
     await update_series(session, messenger, admin, series.id, replace(series_to_input(series), place="Стадион"), T1)
     assert await active_orders(session) == []
+
+
+async def test_deactivating_an_item_cancels_its_future_orders_and_notifies_the_rider(session, messenger):
+    admin, _, t, bike, helmet = await ordered(session, messenger)
+    item, cancelled = await set_item_active(session, messenger, admin, bike.id, False, NOW)
+    assert item.active is False and [o.item_id for o in cancelled] == [bike.id]
+    assert [o.item_id for o in await active_orders(session)] == [helmet.id]
+    (text,) = [txt for uid, txt in messenger.notifications if uid == 1 and "Велосипед №1" in txt]
+    assert "отмен" in text and "Шлем" not in text
+    # возврат в парк ничего больше не меняет
+    item, cancelled = await set_item_active(session, messenger, admin, bike.id, True, NOW)
+    assert item.active is True and cancelled == []
+    assert [o.item_id for o in await active_orders(session)] == [helmet.id]
+
+
+async def test_deactivating_requires_admin(session, messenger):
+    _, trainer, t, bike, _ = await ordered(session, messenger)
+    with pytest.raises(PermissionDenied):
+        await set_item_active(session, messenger, trainer, bike.id, False, NOW)
+    assert len(await active_orders(session)) == 2
+
+
+class RaisingMessenger(FakeMessenger):
+    async def notify(self, user_id, text, keyboard=None) -> bool:
+        raise RuntimeError("telegram down")
+
+
+async def test_failing_notify_does_not_abort_cancel_or_post_refresh(session, messenger):
+    admin, _, t, bike, _ = await ordered(session, messenger)
+    broken = RaisingMessenger()
+    item, cancelled = await set_item_active(session, broken, admin, bike.id, False, NOW)
+    assert [o.item_id for o in cancelled] == [bike.id]
+    await decline_training(session, broken, t.id, 1, NOW)  # заказы отменены, посты обновлены
+    assert await active_orders(session) == []
+    assert broken.edits  # refresh_posts выполнился, несмотря на упавший notify
