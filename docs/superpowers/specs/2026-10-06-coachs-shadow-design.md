@@ -28,7 +28,7 @@ Mini App, абонементы, дедлайн заказа инвентаря (
 - Роли: `admin` → `trainer` → `member`. Тренеры привязаны к чату: в чате несколько тренеров и один главный (`is_lead`).
   Тренер управляет своими тренировками; главный тренер чата ещё и всеми тренировками, опубликованными в его чате (допущение, подтвердить).
 - Стек: Python, aiogram 3, SQLAlchemy 2 async, Alembic, SQLite (позже PostgreSQL).
-- Архитектура: один процесс (бот + планировщик), long polling, слои handlers/services/repo.
+- Архитектура: один процесс (бот + планировщик), long polling, код по фичам, Telegram за интерфейсом `Messenger` (см. раздел 4).
 
 ## 3. Модель данных
 
@@ -65,7 +65,12 @@ Mini App, абонементы, дедлайн заказа инвентаря (
 `price`, `paid_status` (оба nullable, под оплату).
 
 **Setting** (ключ-значение): окно публикации (24 ч), напоминания (24 ч, 2 ч),
-`duration_min` по умолчанию, дедлайн заказа инвентаря (пусто = нет).
+`duration_min` по умолчанию, дедлайн заказа инвентаря (пусто = нет),
+`club_timezone` (IANA, например `Europe/Moscow`).
+
+Время: `starts_at` хранится в UTC. Правила повторения («вт и чт в 19:00») вычисляются в
+`club_timezone`, чтобы переход на летнее время не сдвигал тренировки; в интерфейсе время
+показывается в том же поясе.
 
 **ScheduledJob**: тип (generate/publish/remind_24h/remind_2h), `run_at`, `payload`, `done_at`.
 
@@ -73,19 +78,43 @@ Mini App, абонементы, дедлайн заказа инвентаря (
 
 ## 4. Структура кода
 
+Код делится по фичам. В каждой фиче свои модели, сервис и (где нужно) чистая логика;
+хендлеры Telegram собраны отдельно и зависят от фич, а не наоборот.
+
 ```
 bot/
-  handlers/    # aiogram: разбор апдейта, вызов сервиса
-  services/    # бизнес-логика, не знает про aiogram
-  repo/        # SQLAlchemy-запросы
-  models/      # ORM
-  render/      # тексты и клавиатуры карточек
-  scheduler.py # цикл по ScheduledJob
+  core/           # config (.env: токен, ADMIN_IDS, часовой пояс), db (engine, сессия),
+                  # messenger (протокол Messenger), permissions (функции-политики), texts
+  users/          # User, Invite, ChatTrainer; UserService, RoleService
+  schedule/       # Level, Chat, TrainingSeries, Training; ScheduleService (генерация, отмена)
+  participation/  # Participation; ParticipationService
+  inventory/      # InventoryItem, InventoryOrder; InventoryService, matching.py
+  publishing/     # TrainingPost; PublishService, рендер карточек и клавиатур
+  jobs/           # ScheduledJob, цикл планировщика, обработчики задач
+  telegram/       # aiogram: handlers, middleware, FSM-состояния, CallbackData,
+                  # адаптер Messenger
   main.py
+alembic/          # миграции
+tests/            # зеркалит структуру bot/
 ```
 
-Сервисы: `ScheduleService`, `ParticipationService`, `InventoryService`, `PublishService`,
-`PermissionService`, `RoleService` (роли и приглашения).
+Правила:
+- Фичи зависят от `core`; `telegram/` зависит от фич; фичи не импортируют aiogram и `telegram/`.
+- Слоя `repo/` нет: сервисы работают с async-сессией напрямую. Сложные запросы (свободные
+  единицы на слот, сводка, пересечения) оформляются именованными функциями рядом с сервисом.
+- **Messenger** (`core/messenger.py`) — протокол с методами `send`, `edit_post`, `notify`.
+  Сервисы получают его через внедрение зависимости. Реализация на aiogram живёт в
+  `telegram/`, в тестах подставляется заглушка. Так сервисы, включая `PublishService`,
+  проверяются без Telegram.
+- **Права** — функции-политики в `core/permissions.py` (например, `can_edit_training(user, training)`),
+  их вызывают сами сервисы внутри операции, чтобы проверку нельзя было обойти из хендлера.
+- **Подбор инвентаря** — чистая функция в `inventory/matching.py`: на входе профиль,
+  кандидаты и занятые единицы, на выходе предложения с пояснениями. Запрос свободных единиц
+  отдельно.
+- Middleware (`telegram/`) открывает сессию БД и загружает пользователя на каждый апдейт.
+
+Сервисы: `UserService`, `RoleService` (роли, приглашения, тренеры чатов), `ScheduleService`,
+`ParticipationService`, `InventoryService`, `PublishService`.
 
 ## 5. Основные потоки
 
