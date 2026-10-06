@@ -12,7 +12,7 @@ from bot.core.logging_setup import setup_logging
 from bot.bootstrap import bootstrap
 from bot.jobs.runner import scheduler_loop
 from bot.telegram.errors import on_domain_error
-from bot.telegram.handlers import admin, common, participation, picker, schedule, trainer
+from bot.telegram.handlers import admin, common, participation, picker, schedule, trainer, trainer_forms
 from bot.telegram.membership import AiogramMembership
 from bot.telegram.messenger import AiogramMessenger
 from bot.telegram.middleware import AccessMiddleware, DbSessionMiddleware
@@ -35,7 +35,11 @@ async def main() -> None:
     dp.message.middleware(access)
     dp.callback_query.middleware(access)
     dp.errors.register(on_domain_error, ExceptionTypeFilter(DomainError))
-    dp.include_routers(common.router, picker.router, admin.router, schedule.router, trainer.router, participation.router)
+    # trainer_forms first: its outer middleware must drop the form state before common commands (/start) are handled
+    dp.include_routers(
+        trainer_forms.router, common.router, picker.router, admin.router, schedule.router, trainer.router,
+        participation.router,
+    )
 
     scheduler = asyncio.create_task(scheduler_loop(session_factory, messenger))
     log.info("bot started: admins=%d, timezone=%s", len(cfg.admin_ids), cfg.club_timezone)
