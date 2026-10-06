@@ -59,3 +59,9 @@ def test_menu_prefixes_do_not_collide_with_existing_ones():
     for data in (menu.MENU_SCHEDULE, menu.MENU_MY, menu.MENU_PROFILE, menu.MENU_TRAINER, menu.MENU_ADMIN,
                  menu.MENU_BACK, menu.BIND_PREFIX):
         assert not data.startswith(taken)
+
+
+def test_bot_commands_are_only_start_and_whoami():
+    assert [command for command, _ in menu.BOT_COMMANDS] == ["start", "whoami"]
+    for _, description in menu.BOT_COMMANDS:
+        assert 0 < len(description) <= 256
