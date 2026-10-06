@@ -109,3 +109,19 @@ async def test_list_participants_orders_by_time(session):
     going, declined = await svc.list_participants(t.id)
     assert [u.telegram_id for u in going] == [2, 1]
     assert [u.telegram_id for u in declined] == [3]
+
+
+async def test_concurrent_joins_never_exceed_capacity(session, session_factory):
+    t = await published(session, capacity=1)
+    for uid in (1, 2, 3, 4):
+        await add_user(session, uid)
+
+    async def join(uid):
+        async with session_factory() as s:
+            return await ParticipationService(s).join(t.id, uid, NOW)
+
+    import asyncio
+
+    outcomes = await asyncio.gather(*(join(uid) for uid in (1, 2, 3, 4)))
+    assert outcomes.count(JoinOutcome.JOINED) == 1
+    assert await ParticipationService(session).going_count(t.id) == 1
