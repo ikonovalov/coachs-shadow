@@ -2,7 +2,6 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.db import utcnow
@@ -10,10 +9,9 @@ from bot.core.errors import DomainError, InvalidAction, NotFound
 from bot.core.messenger import Messenger
 from bot.core.permissions import Role, require_admin
 from bot.core.settings import get_setting, set_setting, validate_setting
-from bot.schedule.models import Level
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers.picker import on_pick, start_picker
-from bot.telegram.menu import ADMIN_MENU
+from bot.telegram.menu import ADD_LEVEL_CANCEL, ADMIN_MENU, cancel_keyboard
 from bot.telegram.states import AdminInput
 from bot.telegram.ui import markup, restore_form, safe_edit, take_form
 from bot.users.models import User
@@ -184,10 +182,10 @@ async def picked_admin(
 @router.callback_query(F.data == "ad:levels")
 async def on_levels(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     require_admin(user)
-    names = list(await session.scalars(select(Level.name).order_by(Level.position, Level.id)))
+    names = [level.name for level in await ScheduleService(session).list_levels()]
     await safe_edit(cb.message, 
         "Уровни:\n" + ("\n".join(f"• {n}" for n in names) or "пока нет"),
-        reply_markup=markup([("➕ Добавить уровень", "ad:addlvl")], [("⬅️ Меню", "ad:menu")]),
+        reply_markup=markup([("➕ Новый уровень", "ad:addlvl")], [("⬅️ Меню", "ad:menu")]),
     )
     await cb.answer()
 
@@ -198,7 +196,15 @@ async def on_add_level(cb: CallbackQuery, state: FSMContext, user: User) -> None
     await state.clear()
     await state.set_state(AdminInput.value)
     await state.update_data(purpose="add_level")
-    await cb.message.answer("Название нового уровня:")
+    await cb.message.answer("Название нового уровня:", reply_markup=cancel_keyboard())
+    await cb.answer()
+
+
+@router.callback_query(F.data == ADD_LEVEL_CANCEL)
+async def on_add_level_cancel(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+    require_admin(user)
+    await state.clear()
+    await safe_edit(cb.message, "Меню администратора", reply_markup=ADMIN_MENU)
     await cb.answer()
 
 
@@ -258,7 +264,7 @@ async def on_admin_input(message: Message, state: FSMContext, session: AsyncSess
         await restore_form(state, AdminInput.value, data)  # при ошибке ввода можно повторить
         raise
     if purpose == "add_level":
-        await message.answer(f"Уровень «{level.name}» добавлен. Привяжите чат: /bind_level {level.name}")
+        await message.answer(f"Уровень «{level.name}» добавлен", reply_markup=ADMIN_MENU)
     else:
         await message.answer("Сохранено ✅")
 
