@@ -19,14 +19,6 @@ router = Router()
 CANCEL = [("✖️ Отмена", "pk:cancel")]
 
 
-@router.message.outer_middleware()
-async def drop_picker_on_command(handler, event, data):
-    """A command typed during the picker leaves it and falls through to the normal handlers."""
-    state = data.get("state")
-    if state is not None and (event.text or "").startswith("/") and await state.get_state() == Picker.query.state:
-        await state.clear()
-    return await handler(event, data)
-
 PickHandler = Callable[[CallbackQuery, AsyncSession, User, Messenger, dict, int], Awaitable[None]]
 PICK_HANDLERS: dict[str, PickHandler] = {}
 

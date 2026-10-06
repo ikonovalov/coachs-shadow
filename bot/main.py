@@ -15,7 +15,7 @@ from bot.telegram.errors import on_domain_error
 from bot.telegram.handlers import admin, chats, common, participation, picker, schedule, trainer, trainer_forms
 from bot.telegram.membership import AiogramMembership
 from bot.telegram.messenger import AiogramMessenger
-from bot.telegram.middleware import AccessMiddleware, DbSessionMiddleware
+from bot.telegram.middleware import AccessMiddleware, DbSessionMiddleware, clear_state_on_command
 
 log = logging.getLogger(__name__)
 
@@ -31,11 +31,14 @@ async def main() -> None:
     messenger = AiogramMessenger(bot)
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.outer_middleware(DbSessionMiddleware(session_factory, cfg.admin_ids))
+    # on the dispatcher itself, so it runs before any router: a command drops whatever form/picker/input was open
+    dp.message.outer_middleware(clear_state_on_command)
     access = AccessMiddleware(AiogramMembership(bot), cfg.admin_ids)
     dp.message.middleware(access)
     dp.callback_query.middleware(access)
     dp.errors.register(on_domain_error, ExceptionTypeFilter(DomainError))
-    # trainer_forms first: its outer middleware must drop the form state before common commands (/start) are handled
+    # trainer_forms first: it handles "tr:new:*", which the trainer router's "tr:" catch-all would swallow.
+    # Each router ends with a stateless catch-all for its own "<prefix>:" callbacks (expired buttons).
     dp.include_routers(
         trainer_forms.router, common.router, picker.router, admin.router, chats.router, schedule.router, trainer.router,
         participation.router,

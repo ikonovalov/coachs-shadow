@@ -22,15 +22,6 @@ router = Router()
 router.callback_query.filter(F.message.chat.type == "private")  # admin menus live in private only
 
 
-@router.message.outer_middleware()
-async def drop_admin_input_on_command(handler, event, data):
-    """A command typed while a value is awaited leaves the form and falls through to the normal handlers."""
-    state = data.get("state")
-    if state is not None and (event.text or "").startswith("/") and await state.get_state() == AdminInput.value.state:
-        await state.clear()
-    return await handler(event, data)
-
-
 ADMIN_MENU = markup(
     [("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins")],
     [("🎚 Уровни", "ad:levels"), ("💬 Чаты", "ch:list")],

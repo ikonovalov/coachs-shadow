@@ -30,6 +30,15 @@ class DbSessionMiddleware(BaseMiddleware):
             return await handler(event, data)
 
 
+async def clear_state_on_command(handler, event, data):
+    """Dispatcher-level outer middleware: any command ("/...") abandons an unfinished form, picker or input,
+    then falls through to its normal handler. Otherwise stray text typed later would be taken as a form value."""
+    state = data.get("state")
+    if state is not None and (getattr(event, "text", None) or "").startswith("/") and await state.get_state():
+        await state.clear()
+    return await handler(event, data)
+
+
 class AccessMiddleware(BaseMiddleware):
     """Внутренний middleware: в личке пускает только участников клуба. Кнопки в группах — доказательство членства."""
 

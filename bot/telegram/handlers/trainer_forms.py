@@ -29,17 +29,6 @@ CANCEL_ROW = [("✖️ Отмена", "nf:no")]
 TEXT = (F.text, ~F.text.startswith("/"))
 
 
-@router.message.outer_middleware()
-async def drop_form_on_command(handler, event, data):
-    """A command typed during the form leaves it and falls through to the normal handlers."""
-    state = data.get("state")
-    if state is not None and (event.text or "").startswith("/"):
-        current = await state.get_state()
-        if current and current.startswith(NewTraining.__name__ + ":"):
-            await state.clear()
-    return await handler(event, data)
-
-
 @router.callback_query(F.data.in_({"tr:new:series", "tr:new:one"}))
 async def on_new(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
     await ensure_trainer(session, user)
