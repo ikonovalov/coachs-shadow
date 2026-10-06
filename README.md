@@ -1,0 +1,101 @@
+# Coach's Shadow
+
+Telegram-бот велоклуба: расписание тренировок, публикация постов в чаты уровней за 24 часа до старта,
+запись «Пойду / Не пойду» с лимитом мест, напоминания за 2 часа, отмена и автоматическое закрытие тренировок.
+
+Стек: Python 3.11+, aiogram 3, SQLAlchemy 2 (async) + aiosqlite, Alembic, pydantic-settings, pytest.
+Дизайн: `docs/superpowers/specs/2026-10-06-coachs-shadow-design.md`.
+
+## Установка
+
+Windows (PowerShell):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+```
+
+Linux / macOS:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+## Настройка
+
+Скопируйте `.env.example` в `.env` и заполните:
+
+| Переменная | Назначение |
+|---|---|
+| `BOT_TOKEN` | токен бота от @BotFather |
+| `ADMIN_IDS` | Telegram ID администраторов через запятую (свой ID покажет команда `/whoami`) |
+| `DATABASE_URL` | по умолчанию `sqlite+aiosqlite:///coachs_shadow.db` |
+| `CLUB_TIMEZONE` | часовой пояс клуба (IANA), по умолчанию `Europe/Moscow` |
+
+## Запуск
+
+```bash
+alembic upgrade head      # создать/обновить схему БД
+python -m bot.main        # запустить бота (long polling + планировщик)
+```
+
+Демо-данные для проверки (одна тренировка на завтра 19:00 для уровня «Новички»):
+
+```bash
+python -m scripts.seed_demo
+```
+
+Пока нет UI создания тренировок (он в плане 2), тренировки создаются через `ScheduleService` или этот скрипт.
+
+### Ручная проверка
+
+1. Добавьте бота в тестовую группу (он должен иметь право писать).
+2. В группе отправьте `/bind_level Новички` (от администратора) — чат привязан к уровню.
+3. В течение ~30 секунд в группе появится пост тренировки; кнопка «Пойду» меняет счётчик, «Участники» показывает список.
+4. В личке с ботом `/schedule` показывает ближайшие тренировки.
+
+### Команды
+
+- `/start`, `/whoami`, `/schedule` — для всех (в личке; `/whoami` везде)
+- `/add_level <название>` — администратор, добавить уровень
+- `/bind_level <название>` — администратор, в группе: привязать чат к уровню
+
+## Тесты
+
+```bash
+python -m pytest -q                      # все тесты
+python -m pytest tests/schedule -v       # одна папка
+python -m pytest -k concurrent           # по имени
+```
+
+Сеть и токен не нужны: сервисные тесты работают на временной SQLite, Telegram подменён `FakeMessenger`
+(`tests/fakes.py`). Если окружение не активировано, запускайте через `.venv\Scripts\python -m pytest`.
+
+## Миграции
+
+```bash
+alembic revision --autogenerate -m "описание"   # после изменения моделей
+alembic upgrade head
+```
+
+Новые модели должны быть импортированы в `bot/registry.py`.
+
+## Структура
+
+```
+bot/
+  core/          конфиг, БД, ошибки, настройки, Messenger-протокол, права
+  users/ schedule/ participation/ publishing/ jobs/   фичи (models, service, ...)
+  usecases.py    операции, затрагивающие несколько фич
+  telegram/      единственный пакет, который импортирует aiogram
+  bootstrap.py   main.py
+alembic/         миграции
+scripts/         seed_demo.py
+tests/           зеркалит bot/
+```
+
+Правила: фичи зависят от `core`, не импортируют aiogram; в Telegram ходим только через `Messenger`;
+время хранится в UTC, правила повторения считаются в `club_timezone`.
