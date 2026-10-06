@@ -29,7 +29,7 @@ flowchart TB
     TG[(Telegram)]
     subgraph TL["bot/telegram — единственный слой с aiogram"]
         MW["middlewares<br/>DbSession · clear_state_on_command · Access"]
-        H["handlers<br/>common · picker · park · admin · chats · profile · my · inventory<br/>schedule · trainer · trainer_forms · participation"]
+        H["handlers<br/>common · binding · picker · park · admin · chats · profile · my · inventory<br/>schedule · trainer · trainer_forms · participation"]
         AM["AiogramMessenger / AiogramMembership"]
     end
     UC["bot/usecases.py<br/>сквозные операции"]
