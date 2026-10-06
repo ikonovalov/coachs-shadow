@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.messenger import Messenger
 from bot.telegram.states import Picker
-from bot.telegram.ui import markup
+from bot.core.errors import DomainError
+from bot.telegram.ui import markup, restore_form, take_form
 from bot.users.models import User
 from bot.users.service import UserService
 
@@ -73,14 +74,20 @@ async def on_pick_cancel(cb: CallbackQuery, state: FSMContext) -> None:
 async def on_picked(
     cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User, messenger: Messenger
 ) -> None:
-    data = await state.get_data()
-    await state.clear()
+    data = await take_form(state, Picker.query)  # двойное нажатие: второй раз данных уже нет
+    if data is None:
+        await cb.answer()
+        return
     handler = PICK_HANDLERS.get(data.get("purpose"))
     if handler is None:
         log.error("no pick handler for purpose %r", data.get("purpose"))
         await cb.answer()
         return
-    await handler(cb, session, user, messenger, data["ctx"], int(cb.data.split(":", 1)[1]))
+    try:
+        await handler(cb, session, user, messenger, data["ctx"], int(cb.data.split(":", 1)[1]))
+    except DomainError:
+        await restore_form(state, Picker.query, data)  # можно выбрать другого
+        raise
 
 
 @router.callback_query(F.data.startswith("pk:"))

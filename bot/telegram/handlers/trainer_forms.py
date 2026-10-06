@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.db import utcnow
-from bot.core.errors import InvalidAction
+from bot.core.errors import DomainError, InvalidAction
 from bot.schedule.forms import (
     build_series_input, parse_capacity, parse_date, parse_kind, parse_optional_date, parse_place,
     parse_time, parse_weekdays, summarize_series,
@@ -16,7 +16,7 @@ from bot.schedule.models import Level
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers.trainer import ensure_trainer
 from bot.telegram.states import NewTraining
-from bot.telegram.ui import local_today, markup
+from bot.telegram.ui import local_today, markup, restore_form, take_form
 from bot.users.models import User
 
 log = logging.getLogger(__name__)
@@ -153,9 +153,15 @@ async def on_description(message: Message, state: FSMContext, session: AsyncSess
 
 @router.callback_query(NewTraining.confirm, F.data == "nf:ok")
 async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
-    data = await state.get_data()
-    await ScheduleService(session).create_series(user, build_series_input(data), utcnow())
-    await state.clear()
+    data = await take_form(state, NewTraining.confirm)  # до сервиса: двойное нажатие создаст одну серию
+    if data is None:
+        await cb.answer()
+        return
+    try:
+        await ScheduleService(session).create_series(user, build_series_input(data), utcnow())
+    except DomainError:
+        await restore_form(state, NewTraining.confirm, data)
+        raise
     log.info("training created by %s (one_off=%s)", user.telegram_id, data.get("one_off"))
     await cb.message.edit_text(
         "Готово ✅ Пост появится в чатах за 24 часа до старта. Расписание: /schedule",

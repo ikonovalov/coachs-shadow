@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.db import utcnow
-from bot.core.errors import InvalidAction, NotFound, PermissionDenied
+from bot.core.errors import DomainError, InvalidAction, NotFound, PermissionDenied
 from bot.core.messenger import Messenger
 from bot.core.permissions import Actor, Role
 from bot.participation.service import JoinOutcome, ParticipationService
@@ -21,7 +21,7 @@ from bot.schedule.queries import trainer_level_ids
 from bot.schedule.service import ScheduleService, series_to_input
 from bot.telegram.handlers.picker import on_pick, start_picker
 from bot.telegram.states import EditField
-from bot.telegram.ui import club_tz, local_today, markup, short_title
+from bot.telegram.ui import club_tz, local_today, markup, restore_form, short_title, take_form
 from bot.usecases import (
     cancel_trainings, manual_add_participant, manual_remove_participant, update_series, update_training,
 )
@@ -194,9 +194,16 @@ async def on_multi_ask(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "tr:mok")
 async def on_multi_do(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger, state: FSMContext) -> None:
-    sel = (await state.get_data()).get("sel", [])
-    await state.clear()
-    await cancel_trainings(session, messenger, user, list(sel), utcnow())  # всё или ничего
+    data = await take_form(state, key="sel")  # до сервиса: повторное нажатие ничего не найдёт
+    if data is None:
+        await cb.answer()
+        return
+    sel = data["sel"]
+    try:
+        await cancel_trainings(session, messenger, user, list(sel), utcnow())  # всё или ничего
+    except DomainError:
+        await restore_form(state, None, data)
+        raise
     await cb.message.edit_text(f"Отменено тренировок: {len(sel)}", reply_markup=markup([("⬅️ К списку", "tr:list")]))
     await cb.answer()
 
@@ -254,9 +261,14 @@ async def on_edit_value(
     data = await state.get_data()
     now = utcnow()
     if data["target"] == "training":
-        edit = apply_training_field(data["field"], message.text)  # ошибка ввода: состояние остаётся, можно повторить
-        await update_training(session, messenger, user, data["id"], edit, now)
-        await state.clear()
+        if await take_form(state, EditField.value) is None:  # второе сообщение подряд: уже обрабатывается
+            return
+        try:
+            edit = apply_training_field(data["field"], message.text)
+            await update_training(session, messenger, user, data["id"], edit, now)
+        except DomainError:
+            await restore_form(state, EditField.value, data)  # ошибка ввода: можно повторить
+            raise
         await message.answer("Сохранено ✅", reply_markup=markup([("⬅️ К списку", "tr:list")]))
         return
     series = await _get_editable_series(session, user, data["id"])
@@ -270,13 +282,17 @@ async def on_edit_value(
 
 @router.callback_query(EditField.value, F.data == "tr:sok")
 async def on_series_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User, messenger: Messenger) -> None:
-    data = await state.get_data()
-    if "text" not in data or data.get("target") != "series":
-        raise InvalidAction("Сначала введите значение")
-    series = await _get_editable_series(session, user, data["id"])
-    new = apply_series_field(series_to_input(series), data["field"], data["text"], await local_today(session))
-    replaced = await update_series(session, messenger, user, series.id, new, utcnow())
-    await state.clear()
+    data = await take_form(state, EditField.value, key="text")  # до сервиса: двойное нажатие применит один раз
+    if data is None:
+        await cb.answer("Сначала введите значение")
+        return
+    try:
+        series = await _get_editable_series(session, user, data["id"])
+        new = apply_series_field(series_to_input(series), data["field"], data["text"], await local_today(session))
+        replaced = await update_series(session, messenger, user, series.id, new, utcnow())
+    except DomainError:
+        await restore_form(state, EditField.value, data)
+        raise
     await cb.message.edit_text(
         f"Серия обновлена ✅ Заменено опубликованных тренировок: {len(replaced)}",
         reply_markup=markup([("⬅️ К списку", "tr:list")]),

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.db import utcnow
-from bot.core.errors import InvalidAction, NotFound
+from bot.core.errors import DomainError, InvalidAction, NotFound
 from bot.core.messenger import Messenger
 from bot.core.permissions import Role, require_admin
 from bot.core.settings import get_setting, set_setting, validate_setting
@@ -14,7 +14,7 @@ from bot.schedule.models import Level
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers.picker import on_pick, start_picker
 from bot.telegram.states import AdminInput
-from bot.telegram.ui import markup
+from bot.telegram.ui import markup, restore_form, take_form
 from bot.users.models import User
 from bot.users.roles import RoleService
 
@@ -247,15 +247,23 @@ async def on_setting(cb: CallbackQuery, state: FSMContext, user: User) -> None:
 @router.message(AdminInput.value, F.text, ~F.text.startswith("/"), F.chat.type == "private")
 async def on_admin_input(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
     require_admin(user)
-    purpose = (await state.get_data())["purpose"]
+    data = await take_form(state, AdminInput.value)  # два сообщения подряд: значение применится один раз
+    if data is None:
+        return
+    purpose = data["purpose"]
+    try:
+        if purpose == "add_level":
+            level = await ScheduleService(session).add_level(user, message.text)
+        else:
+            key = purpose.split(":", 1)[1]
+            await set_setting(session, key, validate_setting(key, message.text))
+    except DomainError:
+        await restore_form(state, AdminInput.value, data)  # при ошибке ввода можно повторить
+        raise
     if purpose == "add_level":
-        level = await ScheduleService(session).add_level(user, message.text)
         await message.answer(f"Уровень «{level.name}» добавлен. Привяжите чат: /bind_level {level.name}")
     else:
-        key = purpose.split(":", 1)[1]
-        await set_setting(session, key, validate_setting(key, message.text))  # при ошибке состояние остаётся
         await message.answer("Сохранено ✅")
-    await state.clear()
 
 
 @router.callback_query(F.data.startswith("ad:"))

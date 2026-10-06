@@ -60,13 +60,17 @@ class ParticipationService:
         training = await self._open_training(training_id, now)
         if not await ScheduleService(self.session).can_manage(actor, training):
             raise PermissionDenied("Нет прав на эту тренировку")
-        row = await self.session.get(Participation, (training_id, user_id))
-        if row is None or row.status != ParticipationStatus.GOING:
-            return False
-        row.status = ParticipationStatus.DECLINED
-        row.updated_at = now
+        removed = await self.session.execute(  # conditional: of two concurrent taps only one removes
+            update(Participation)
+            .where(
+                Participation.training_id == training_id,
+                Participation.user_id == user_id,
+                Participation.status == ParticipationStatus.GOING,
+            )
+            .values(status=ParticipationStatus.DECLINED, updated_at=now)
+        )
         await self.session.commit()
-        return True
+        return removed.rowcount == 1
 
     async def going_count(self, training_id: int) -> int:
         return await self.session.scalar(

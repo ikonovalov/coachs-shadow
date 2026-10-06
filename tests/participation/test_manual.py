@@ -86,3 +86,17 @@ async def test_manual_add_of_decliner_records_who_added(session):
     assert await svc.manual_add(trainer, t.id, 1, NOW + timedelta(minutes=1)) == JoinOutcome.JOINED
     row = await session.get(Participation, (t.id, 1))
     assert (row.status, row.added_by, row.updated_at) == ("going", 10, NOW + timedelta(minutes=1))
+
+
+async def test_concurrent_manual_removes_report_one_removal(session, session_factory):
+    import asyncio
+
+    trainer, t = await setup(session, capacity=5)
+    await add_user(session, 1)
+    await ParticipationService(session).manual_add(trainer, t.id, 1, NOW)
+
+    async def remove():
+        async with session_factory() as s:
+            return await ParticipationService(s).manual_remove(trainer, t.id, 1, NOW)
+
+    assert sorted(await asyncio.gather(remove(), remove(), remove())) == [False, False, True]

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.errors import InvalidAction, NotFound, PermissionDenied
@@ -185,8 +185,16 @@ class ScheduleService:
                 raise PermissionDenied("Нет прав на эту тренировку")
             trainings.append(training)
         for training in trainings:
-            training.status = TrainingStatus.CANCELLED
-            training.cancel_reason = CancelReason.USER
+            # conditional UPDATE: of two concurrent cancels (double tap) only one flips the status
+            flipped = await self.session.execute(
+                update(Training)
+                .where(Training.id == training.id, Training.status == TrainingStatus.SCHEDULED)
+                .values(status=TrainingStatus.CANCELLED, cancel_reason=CancelReason.USER)
+            )
+            if flipped.rowcount != 1:
+                await self.session.rollback()
+                raise InvalidAction("Тренировка уже отменена или прошла")
+            training.status, training.cancel_reason = TrainingStatus.CANCELLED, CancelReason.USER  # in-memory copy
             await cancel_for_training(self.session, training.id, now)
         await self.session.commit()
         return trainings
