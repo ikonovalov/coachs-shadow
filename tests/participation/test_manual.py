@@ -59,3 +59,30 @@ async def test_manual_remove(session):
     await svc.manual_add(trainer, t.id, 1, NOW)
     assert await svc.manual_remove(trainer, t.id, 1, NOW) is True
     assert await svc.going_count(t.id) == 0
+
+
+async def test_concurrent_manual_adds_respect_capacity(session, session_factory):
+    trainer, t = await setup(session, capacity=1)
+    for uid in (1, 2, 3, 4):
+        await add_user(session, uid)
+
+    async def add(uid):
+        async with session_factory() as s:
+            return await ParticipationService(s).manual_add(trainer, t.id, uid, NOW)
+
+    import asyncio
+
+    outcomes = await asyncio.gather(*(add(uid) for uid in (1, 2, 3, 4)))
+    assert outcomes.count(JoinOutcome.JOINED) == 1
+    assert outcomes.count(JoinOutcome.OVER_LIMIT) == 3
+    assert await ParticipationService(session).going_count(t.id) == 1
+
+
+async def test_manual_add_of_decliner_records_who_added(session):
+    trainer, t = await setup(session, capacity=5)
+    await add_user(session, 1)
+    svc = ParticipationService(session)
+    await svc.decline(t.id, 1, NOW)
+    assert await svc.manual_add(trainer, t.id, 1, NOW + timedelta(minutes=1)) == JoinOutcome.JOINED
+    row = await session.get(Participation, (t.id, 1))
+    assert (row.status, row.added_by, row.updated_at) == ("going", 10, NOW + timedelta(minutes=1))
