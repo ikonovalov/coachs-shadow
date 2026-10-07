@@ -9,7 +9,17 @@ from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.core.permissions import Role, can_create_for_levels, can_manage_training, require_admin
 from bot.core.settings import get_setting
 from bot.jobs.queue import JobKind, cancel_for_training, delete_for_training, enqueue
-from bot.schedule.models import CancelReason, Chat, Level, Training, TrainingKind, TrainingSeries, TrainingStatus
+from bot.schedule.models import (
+    CancelReason,
+    Chat,
+    Level,
+    Training,
+    TrainingKind,
+    TrainingSeries,
+    TrainingStatus,
+    series_level,
+    training_level,
+)
 from bot.schedule.queries import can_manage, going_count, lead_chat_ids, target_chat_ids, trainer_level_ids
 from bot.schedule.recurrence import occurrences
 from bot.users.models import User
@@ -96,6 +106,26 @@ class ScheduleService:
         level = await self.session.get(Level, level_id)
         if level is None:
             raise NotFound("Уровень не найден")
+        return level
+
+    async def delete_level(self, actor: User, level_id: int) -> Level:
+        """Удаляет только неиспользуемый уровень: без чатов, серий и тренировок (в т.ч. прошедших)."""
+        require_admin(actor)
+        level = await self.get_level(level_id)
+
+        async def count(column) -> int:
+            return await self.session.scalar(select(func.count()).where(column == level_id)) or 0
+
+        chats, series, trainings = (
+            await count(Chat.level_id), await count(series_level.c.level_id), await count(training_level.c.level_id)
+        )
+        if chats or series or trainings:
+            raise InvalidAction(
+                f"Уровень «{level.name}» используется (чатов: {chats}, серий: {series}, тренировок: {trainings}) — "
+                "удалить нельзя"
+            )
+        await self.session.delete(level)
+        await self.session.commit()
         return level
 
     async def bind_chat(self, actor: User, chat_id: int, title: str, level_name: str) -> Chat:

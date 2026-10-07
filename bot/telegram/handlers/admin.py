@@ -38,6 +38,20 @@ async def cmd_add_level(message: Message, command: CommandObject, session: Async
     await message.answer(f"Уровень «{level.name}» добавлен")
 
 
+@router.message(Command("delete_level"), F.chat.type == "private")
+async def cmd_delete_level(message: Message, command: CommandObject, session: AsyncSession, user: User) -> None:
+    require_admin(user)
+    if not command.args:
+        raise InvalidAction("Использование: /delete_level Название уровня")
+    name = command.args.strip()
+    service = ScheduleService(session)
+    level = next((lvl for lvl in await service.list_levels() if lvl.name == name), None)
+    if level is None:
+        raise NotFound(f"Уровень «{name}» не найден")
+    await service.delete_level(user, level.id)
+    await message.answer(f"Уровень «{level.name}» удалён")
+
+
 @router.message(Command("admin"), F.chat.type == "private")
 async def cmd_admin(message: Message, user: User, state: FSMContext) -> None:
     require_admin(user)
@@ -171,15 +185,38 @@ async def picked_admin(
 
 # ---------- уровни ----------
 
+async def _show_levels(cb: CallbackQuery, session: AsyncSession) -> None:
+    levels = await ScheduleService(session).list_levels()
+    rows = [[(f"❌ {level.name}", f"ad:dl:{level.id}")] for level in levels]
+    rows.append([("➕ Новый уровень", "ad:addlvl")])
+    rows.append([("⬅️ Меню", "ad:menu")])
+    text = "Уровни (нажмите, чтобы удалить):" if levels else "Уровней пока нет"
+    await safe_edit(cb.message, text, reply_markup=markup(*rows))
+
+
 @router.callback_query(F.data == "ad:levels")
 async def on_levels(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     require_admin(user)
-    names = [level.name for level in await ScheduleService(session).list_levels()]
-    await safe_edit(cb.message, 
-        "Уровни:\n" + ("\n".join(f"• {n}" for n in names) or "пока нет"),
-        reply_markup=markup([("➕ Новый уровень", "ad:addlvl")], [("⬅️ Меню", "ad:menu")]),
+    await _show_levels(cb, session)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("ad:dl:"))
+async def on_delete_level_confirm(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    require_admin(user)
+    level = await ScheduleService(session).get_level(int(cb.data.split(":")[2]))
+    await safe_edit(cb.message,
+        f"Удалить уровень «{level.name}»? Это возможно, только если он нигде не используется.",
+        reply_markup=markup([("✅ Удалить", f"ad:dly:{level.id}"), ("✖️ Отмена", "ad:levels")]),
     )
     await cb.answer()
+
+
+@router.callback_query(F.data.startswith("ad:dly:"))
+async def on_delete_level_confirmed(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    await ScheduleService(session).delete_level(user, int(cb.data.split(":")[2]))  # re-checks admin and usage
+    await _show_levels(cb, session)
+    await cb.answer("Уровень удалён")
 
 
 @router.callback_query(F.data == "ad:addlvl")

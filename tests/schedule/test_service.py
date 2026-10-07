@@ -86,6 +86,64 @@ async def test_add_level_rejects_too_long_duplicate_and_blank_names(session):
     await svc.add_level(admin, "х" * 50)  # граница допустима
 
 
+async def test_delete_unused_level(session):
+    admin = await add_user(session, 99, "admin")
+    keep = await add_level(session, "Оставить", 0)
+    gone = await add_level(session, "Удалить", 1)
+    svc = ScheduleService(session)
+    await svc.delete_level(admin, gone.id)
+    assert [lvl.name for lvl in await svc.list_levels()] == ["Оставить"]
+    assert keep.id != gone.id
+
+
+async def test_delete_level_refused_for_non_admin(session):
+    member = await add_user(session, 1, "member")
+    level = await add_level(session)
+    svc = ScheduleService(session)
+    with pytest.raises(PermissionDenied):
+        await svc.delete_level(member, level.id)
+    assert len(await svc.list_levels()) == 1
+
+
+async def test_delete_missing_level_raises_not_found(session):
+    admin = await add_user(session, 99, "admin")
+    with pytest.raises(NotFound, match="Уровень не найден"):
+        await ScheduleService(session).delete_level(admin, 12345)
+
+
+async def test_delete_level_refused_while_chat_is_bound(session):
+    admin = await add_user(session, 99, "admin")
+    level = await add_level(session)
+    await add_chat(session, level)
+    svc = ScheduleService(session)
+    with pytest.raises(InvalidAction, match="чатов: 1"):
+        await svc.delete_level(admin, level.id)
+    assert len(await svc.list_levels()) == 1
+
+
+async def test_delete_level_refused_when_series_or_training_uses_it(session):
+    admin = await add_user(session, 99, "admin")
+    trainer = await add_user(session, 5, "trainer")
+    level = await add_level(session)
+    await add_training(session, trainer=trainer, levels=[level], starts_at=NOW + timedelta(days=1))
+    svc = ScheduleService(session)
+    with pytest.raises(InvalidAction, match="серий: 1.*тренировок: 1"):
+        await svc.delete_level(admin, level.id)
+    assert len(await svc.list_levels()) == 1
+
+
+async def test_delete_level_refused_for_past_cancelled_training(session):
+    admin = await add_user(session, 99, "admin")
+    trainer = await add_user(session, 5, "trainer")
+    level = await add_level(session)
+    await add_training(
+        session, trainer=trainer, levels=[level], starts_at=NOW - timedelta(days=30),
+        status=TrainingStatus.CANCELLED,
+    )
+    with pytest.raises(InvalidAction, match="тренировок: 1"):
+        await ScheduleService(session).delete_level(admin, level.id)
+
+
 async def test_bind_chat_to_level_found_by_id(session):
     admin = await add_user(session, 99, "admin")
     level = await add_level(session, "Новички")

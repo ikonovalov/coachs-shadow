@@ -1,10 +1,11 @@
 import pytest
+from aiogram.filters import CommandObject
 
-from bot.core.errors import InvalidAction, PermissionDenied
+from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers import admin
 from bot.telegram.states import AdminInput
-from tests.factories import add_level, add_user
+from tests.factories import add_chat, add_level, add_user
 from tests.telegram.fakes import FakeCallback, FakeMessage, callback_data, fsm
 
 
@@ -75,13 +76,88 @@ async def test_cancel_by_non_admin_is_refused(session):
     assert cb.message.edits == []
 
 
-async def test_levels_screen_lists_levels_in_service_order_with_new_level_button(session):
+async def test_levels_screen_lists_levels_as_cross_buttons_in_service_order(session):
     adm = await add_user(session, 99, "admin")
-    await add_level(session, "Б", position=1)
-    await add_level(session, "А", position=0)
+    b = await add_level(session, "Б", position=1)
+    a = await add_level(session, "А", position=0)
     cb = FakeCallback("ad:levels")
     await admin.on_levels(cb, session, adm)
     text, markup = cb.message.edits[0]
-    assert text == "Уровни:\n• А\n• Б"
-    assert [b.text for row in markup.inline_keyboard for b in row][0] == "➕ Новый уровень"
+    assert text == "Уровни (нажмите, чтобы удалить):"
+    assert [btn.text for row in markup.inline_keyboard for btn in row] == ["❌ А", "❌ Б", "➕ Новый уровень", "⬅️ Меню"]
+    assert callback_data(markup) == [f"ad:dl:{a.id}", f"ad:dl:{b.id}", "ad:addlvl", "ad:menu"]
+
+
+async def test_levels_screen_without_levels_has_only_add_and_menu(session):
+    adm = await add_user(session, 99, "admin")
+    cb = FakeCallback("ad:levels")
+    await admin.on_levels(cb, session, adm)
+    text, markup = cb.message.edits[0]
+    assert text == "Уровней пока нет"
     assert callback_data(markup) == ["ad:addlvl", "ad:menu"]
+
+
+async def test_delete_confirm_screen_asks_before_deleting(session):
+    adm = await add_user(session, 99, "admin")
+    level = await add_level(session, "Новички")
+    cb = FakeCallback(f"ad:dl:{level.id}")
+    await admin.on_delete_level_confirm(cb, session, adm)
+    text, markup = cb.message.edits[0]
+    assert "Новички" in text
+    assert callback_data(markup) == [f"ad:dly:{level.id}", "ad:levels"]
+    assert len(await ScheduleService(session).list_levels()) == 1
+
+
+async def test_confirmed_delete_removes_level_and_shows_levels_screen(session):
+    adm = await add_user(session, 99, "admin")
+    level = await add_level(session, "Новички")
+    await add_level(session, "Про", position=1)
+    cb = FakeCallback(f"ad:dly:{level.id}")
+    await admin.on_delete_level_confirmed(cb, session, adm)
+    assert [lvl.name for lvl in await ScheduleService(session).list_levels()] == ["Про"]
+    text, markup = cb.message.edits[0]
+    assert text == "Уровни (нажмите, чтобы удалить):"
+    assert [btn.text for row in markup.inline_keyboard for btn in row][0] == "❌ Про"
+    assert cb.answers == [("Уровень удалён", False)]
+
+
+async def test_confirmed_delete_of_used_level_is_refused_and_keeps_level(session):
+    adm = await add_user(session, 99, "admin")
+    level = await add_level(session, "Новички")
+    await add_chat(session, level)
+    with pytest.raises(InvalidAction, match="используется"):
+        await admin.on_delete_level_confirmed(FakeCallback(f"ad:dly:{level.id}"), session, adm)
+    assert len(await ScheduleService(session).list_levels()) == 1
+
+
+async def test_delete_screens_refuse_non_admin(session):
+    member = await add_user(session, 1, "member")
+    level = await add_level(session)
+    for handler, data in (
+        (admin.on_delete_level_confirm, f"ad:dl:{level.id}"),
+        (admin.on_delete_level_confirmed, f"ad:dly:{level.id}"),
+    ):
+        cb = FakeCallback(data)
+        with pytest.raises(PermissionDenied):
+            await handler(cb, session, member)
+        assert cb.message.edits == []
+    assert len(await ScheduleService(session).list_levels()) == 1
+
+
+async def test_delete_level_command_deletes_by_name(session):
+    adm = await add_user(session, 99, "admin")
+    await add_level(session, "Новички")
+    msg = FakeMessage()
+    await admin.cmd_delete_level(msg, CommandObject(prefix="/", command="delete_level", args=" Новички "), session, adm)
+    assert await ScheduleService(session).list_levels() == []
+    assert msg.answers[0][0] == "Уровень «Новички» удалён"
+
+
+async def test_delete_level_command_requires_existing_name(session):
+    adm = await add_user(session, 99, "admin")
+    with pytest.raises(InvalidAction, match="Использование"):
+        await admin.cmd_delete_level(FakeMessage(), CommandObject(prefix="/", command="delete_level"), session, adm)
+    with pytest.raises(NotFound):
+        await admin.cmd_delete_level(
+            FakeMessage(), CommandObject(prefix="/", command="delete_level", args="Нет"), session, adm
+        )
