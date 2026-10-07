@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.errors import InvalidAction, NotFound, PermissionDenied
@@ -61,6 +61,11 @@ def series_to_input(series: TrainingSeries) -> SeriesInput:
         duration_min=series.duration_min,
         trainer_id=series.trainer_id,
     )
+
+
+def is_active_series(series: TrainingSeries, today: date) -> bool:
+    """Активная серия — повторяющаяся и не закончившаяся к местной сегодняшней дате."""
+    return bool(series.weekdays) and (series.end_date is None or series.end_date >= today)
 
 
 class ScheduleService:
@@ -191,6 +196,12 @@ class ScheduleService:
             if not await self.can_manage(actor, training):
                 raise PermissionDenied("Нет прав на эту тренировку")
             trainings.append(training)
+        await self._cancel_rows(trainings, now)
+        await self.session.commit()
+        return trainings
+
+    async def _cancel_rows(self, trainings: list[Training], now: datetime) -> None:
+        """Переводит тренировки в CANCELLED (причина USER) и гасит их задачи. Без commit: его делает вызывающий."""
         for training in trainings:
             # conditional UPDATE: of two concurrent cancels (double tap) only one flips the status
             flipped = await self.session.execute(
@@ -203,8 +214,6 @@ class ScheduleService:
                 raise InvalidAction("Тренировка уже отменена или прошла")
             training.status, training.cancel_reason = TrainingStatus.CANCELLED, CancelReason.USER  # in-memory copy
             await cancel_for_training(self.session, training.id, now)
-        await self.session.commit()
-        return trainings
 
     async def allowed_levels(self, actor: User) -> list[Level]:
         query = select(Level).order_by(Level.position, Level.id)
@@ -326,6 +335,64 @@ class ScheduleService:
             result.append(ReplacedTraining(old.id, new.id if new is not None else None))
         await self.session.commit()
         return result
+
+    async def active_series(self, actor: User, now: datetime) -> list[TrainingSeries]:
+        """Активные повторяющиеся серии: свои у тренера, все у админа."""
+        if actor.role not in (Role.ADMIN, Role.TRAINER):
+            return []
+        today = now.astimezone(await self._tz()).date()
+        query = (
+            select(TrainingSeries)
+            .where(
+                TrainingSeries.weekdays != "",
+                or_(TrainingSeries.end_date.is_(None), TrainingSeries.end_date >= today),
+            )
+            .order_by(TrainingSeries.id)
+        )
+        if actor.role != Role.ADMIN:
+            query = query.where(TrainingSeries.trainer_id == actor.telegram_id)
+        return list(await self.session.scalars(query))
+
+    async def future_training_count(self, series_id: int, now: datetime) -> int:
+        count = await self.session.scalar(
+            select(func.count())
+            .select_from(Training)
+            .where(
+                Training.series_id == series_id,
+                Training.status == TrainingStatus.SCHEDULED,
+                Training.starts_at > now,
+            )
+        )
+        return count or 0
+
+    async def end_series(self, actor: User, series_id: int, now: datetime) -> list[Training]:
+        """Завершает серию: отменяет её будущие тренировки и закрывает генерацию. Проверки идут до мутаций."""
+        series = await self.session.get(TrainingSeries, series_id)
+        if series is None:
+            raise NotFound("Серия не найдена")
+        if actor.role != Role.ADMIN and series.trainer_id != actor.telegram_id:
+            raise PermissionDenied("Серию может завершить только её тренер или администратор")
+        if not series.weekdays:
+            raise InvalidAction("Это разовая тренировка: отмените её в разделе «Мои тренировки»")
+        today = now.astimezone(await self._tz()).date()
+        if not is_active_series(series, today):
+            raise InvalidAction("Серия уже завершена")
+        # вчера: generate() берёт серии с end_date >= today, поэтому серия сразу выпадает и из генерации, и из списка
+        series.end_date = today - timedelta(days=1)
+        future = list(
+            await self.session.scalars(
+                select(Training)
+                .where(
+                    Training.series_id == series.id,
+                    Training.status == TrainingStatus.SCHEDULED,
+                    Training.starts_at > now,
+                )
+                .order_by(Training.starts_at)
+            )
+        )
+        await self._cancel_rows(future, now)
+        await self.session.commit()
+        return future
 
     # ---- internals ----
 
