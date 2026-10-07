@@ -115,6 +115,19 @@ async def cancel_trainings(
     return cancelled
 
 
+async def end_series(
+    session: AsyncSession, messenger: Messenger, actor: User, series_id: int, now: datetime
+) -> list[Training]:
+    cancelled = await ScheduleService(session).end_series(actor, series_id, now)
+    log.info("series %s ended by user=%s, cancelled trainings %s", series_id, actor.telegram_id, [t.id for t in cancelled])
+    publisher = PublishService(session, messenger)
+    inventory = InventoryService(session)
+    for training in cancelled:
+        await inventory.cancel_for_training(training.id)
+        await publisher.announce_cancelled(training.id)
+    return cancelled
+
+
 async def update_series(
     session: AsyncSession, messenger: Messenger, actor: User, series_id: int, data: SeriesInput, now: datetime
 ) -> list[ReplacedTraining]:
