@@ -39,7 +39,7 @@ BOT_COMMANDS = [
 
 ADMIN_MENU = markup(
     [("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins")],
-    [("🎚 Уровни", "ad:levels"), ("💬 Чаты", "ch:list")],
+    [("🏅 Уровни", "ad:levels"), ("💬 Чаты", "ch:list")],
     [("🚲 Парк инвентаря", "ad:park")],
     [("🔗 Приглашение тренера", "ad:invite"), ("⚙️ Настройки", "ad:settings")],
     [(TEXT_BACK, MENU_BACK)],

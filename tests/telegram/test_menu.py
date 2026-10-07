@@ -28,7 +28,7 @@ def test_submenus_end_with_back_and_keep_existing_buttons():
     for submenu in (menu.ADMIN_MENU, menu.TRAINER_MENU):
         assert buttons(submenu)[-1] == ("⬅️ Главное меню", "menu:back")
     admin = buttons(menu.ADMIN_MENU)
-    for button in [("🎚 Уровни", "ad:levels"), ("💬 Чаты", "ch:list"), ("🚲 Парк инвентаря", "ad:park"),
+    for button in [("🏅 Уровни", "ad:levels"), ("💬 Чаты", "ch:list"), ("🚲 Парк инвентаря", "ad:park"),
                    ("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins"),
                    ("🔗 Приглашение тренера", "ad:invite"), ("⚙️ Настройки", "ad:settings")]:
         assert button in admin

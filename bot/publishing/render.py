@@ -41,7 +41,7 @@ def render_card(card: CardData, tz: ZoneInfo) -> tuple[str, Keyboard]:
     lines.append(f"🚴 {KIND_NAMES.get(card.kind, card.kind)} · {format_when(card.starts_at, card.duration_min, tz)}")
     lines.append(f"📍 {card.place}")
     lines.append(f"👤 Тренер: {card.trainer_name}")
-    lines.append(f"🎚 Уровни: {', '.join(card.level_names)}")
+    lines.append(f"🏅 Уровни: {', '.join(card.level_names)}")
     if card.published:
         going = f"{card.going_count}/{card.capacity}" if card.capacity else str(card.going_count)
         lines.append(f"✅ Идут: {going}")

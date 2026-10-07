@@ -12,7 +12,7 @@ from bot.users.models import User
 
 router = Router()  # групповые чаты: фильтра «только личка» здесь нет
 GROUPS = {"group", "supergroup"}
-NO_LEVELS_HINT = "Уровней пока нет. Сначала создайте уровень в личном чате с ботом (⚙️ Админ → 🎚 Уровни)."
+NO_LEVELS_HINT = "Уровней пока нет. Сначала создайте уровень в личном чате с ботом (⚙️ Админ → 🏅 Уровни)."
 
 
 @router.message(Command("bind_level"), F.chat.type.in_(GROUPS))
