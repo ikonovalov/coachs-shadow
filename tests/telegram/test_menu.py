@@ -30,9 +30,11 @@ def test_submenus_end_with_back_and_keep_existing_buttons():
                    ("🔗 Приглашение тренера", "ad:invite"), ("⚙️ Настройки", "ad:settings")]:
         assert button in admin
     trainer = buttons(menu.TRAINER_MENU)
-    for button in [("📋 Мои тренировки", "tr:list"), ("➕ Новая серия", "tr:new:series"),
+    for button in [("📋 Мои тренировки", "tr:list"), ("🔁 Мои серии", "tr:slist"), ("➕ Новая серия", "tr:new:series"),
                    ("➕ Разовая", "tr:new:one"), ("💬 Мои чаты", "ch:list")]:
         assert button in trainer
+    data = [d for _, d in trainer]
+    assert data.index("tr:list") + 1 == data.index("tr:slist")
 
 
 def test_levels_keyboard_one_button_per_level():

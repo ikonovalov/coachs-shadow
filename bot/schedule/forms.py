@@ -130,6 +130,16 @@ def summarize_series(inp: SeriesInput, level_names: list[str]) -> str:
     return "\n".join(lines)
 
 
+def series_title(inp: SeriesInput) -> str:
+    """Подпись кнопки серии: «Вт/Чт 19:00 · Парк» (до 64 символов)."""
+    when = "/".join(WEEKDAY_SHORT[d - 1].capitalize() for d in sorted(inp.weekdays)) or f"{inp.start_date:%d.%m}"
+    return f"{when} {inp.start_time:%H:%M} · {inp.place}"[:64]
+
+
+def series_details(inp: SeriesInput, level_names: list[str]) -> str:
+    return summarize_series(inp, level_names) + f"\nНачало: {inp.start_date:%d.%m.%Y}"
+
+
 def apply_series_field(inp: SeriesInput, field: str, text: str, today: date) -> SeriesInput:
     if field == "place":
         return replace(inp, place=parse_place(text))

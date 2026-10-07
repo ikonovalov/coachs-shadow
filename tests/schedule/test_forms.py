@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, time
 
 import pytest
@@ -5,7 +6,7 @@ import pytest
 from bot.core.errors import InvalidAction
 from bot.schedule.forms import (
     apply_series_field, apply_training_field, build_series_input, parse_capacity, parse_date, parse_kind,
-    parse_optional_date, parse_time, parse_weekdays, summarize_series,
+    parse_optional_date, parse_time, parse_weekdays, series_details, series_title, summarize_series,
 )
 from bot.schedule.service import SeriesInput, TrainingEdit
 
@@ -130,3 +131,23 @@ def test_empty_place_is_rejected(empty):
         apply_series_field(base(), "place", empty, TODAY)
     with pytest.raises(InvalidAction, match="Место"):
         apply_training_field("place", empty)
+
+
+def test_series_title_for_weekly_and_long_place():
+    inp = SeriesInput(
+        kind="intervals", place="Парк", level_ids=[1], start_date=date(2026, 10, 6), start_time=time(19, 0),
+        weekdays={4, 2},
+    )
+    assert series_title(inp) == "Вт/Чт 19:00 · Парк"
+    long = replace(inp, place="х" * 100)
+    assert len(series_title(long)) == 64
+
+
+def test_series_details_adds_start_date():
+    inp = SeriesInput(
+        kind="intervals", place="Парк", level_ids=[1], start_date=date(2026, 10, 6), start_time=time(19, 0),
+        weekdays={2}, end_date=date(2026, 12, 31),
+    )
+    text = series_details(inp, ["Новички"])
+    assert "Уровни: Новички" in text and "до 31.12.2026" in text
+    assert text.endswith("Начало: 06.10.2026")

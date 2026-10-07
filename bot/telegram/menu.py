@@ -37,6 +37,7 @@ ADMIN_MENU = markup(
 )
 TRAINER_MENU = markup(
     [("📋 Мои тренировки", "tr:list")],
+    [("🔁 Мои серии", "tr:slist")],
     [("➕ Новая серия", "tr:new:series"), ("➕ Разовая", "tr:new:one")],
     [("💬 Мои чаты", "ch:list")],
     [(TEXT_BACK, MENU_BACK)],
