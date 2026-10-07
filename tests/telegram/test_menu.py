@@ -66,7 +66,9 @@ def test_menu_prefixes_do_not_collide_with_existing_ones():
         assert not data.startswith(taken)
 
 
-def test_bot_commands_are_only_start_and_whoami():
-    assert [command for command, _ in menu.BOT_COMMANDS] == ["start", "whoami"]
+def test_bot_commands_mirror_main_menu_and_whoami():
+    assert [command for command, _ in menu.BOT_COMMANDS] == [
+        "start", "schedule", "my_bookings", "profile", "trainer", "admin", "whoami",
+    ]
     for _, description in menu.BOT_COMMANDS:
         assert 0 < len(description) <= 256

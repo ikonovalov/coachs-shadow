@@ -225,7 +225,7 @@ async def test_stale_cancel_after_confirm_does_not_claim_the_order_is_cancelled(
     old = FakeCallback("iv:no", kinds_msg)  # «Отмена» на экране видов из того же, уже завершённого диалога
     await h.on_cancel(old, state)
     assert kinds_msg.edits == [h.KINDS_TEXT]  # только перерисовка при выборе вида, без «отменён»
-    assert old.answers[-1]["alert"] is True and "/my" in old.answers[-1]["text"]
+    assert old.answers[-1]["alert"] is True and "/my_bookings" in old.answers[-1]["text"]
     assert [o.item_id for o in await active_orders(session, 1)] == [spd.id]
 
 

@@ -48,7 +48,7 @@ async def send_my(message: Message, session: AsyncSession, user: User) -> None:
     await message.answer(text, reply_markup=keyboard)
 
 
-@router.message(Command("my"))
+@router.message(Command("my_bookings", "my"))
 async def cmd_my(message: Message, session: AsyncSession, user: User) -> None:
     await send_my(message, session, user)
 
@@ -66,4 +66,4 @@ async def on_cancel_order(cb: CallbackQuery, session: AsyncSession, user: User) 
 
 @router.callback_query(F.data.startswith("my:"))
 async def on_stale(cb: CallbackQuery) -> None:
-    await cb.answer("Кнопка устарела. Обновите список: /my", show_alert=True)
+    await cb.answer("Кнопка устарела. Обновите список: /my_bookings", show_alert=True)

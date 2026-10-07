@@ -41,7 +41,7 @@ def _kinds_markup(selected: set[str]) -> InlineKeyboardMarkup:
 
 
 def _ordered_text(confirmed: list[str], not_found: list[str]) -> str:
-    text = "✅ Заказано: " + ", ".join(confirmed) + "\nОтменить заказ можно в /my до начала тренировки."
+    text = "✅ Заказано: " + ", ".join(confirmed) + "\nОтменить заказ можно в /my_bookings до начала тренировки."
     if not_found:
         text += "\n\nНе нашлось:\n" + "\n".join(not_found)
     return text
@@ -272,7 +272,7 @@ async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession
 async def on_cancel(cb: CallbackQuery, state: FSMContext) -> None:
     # без фильтра состояния: «Отмена» есть на каждом шаге диалога; вне диалога кнопка устарела
     if await state.get_state() not in InventoryFlow:
-        await cb.answer(STALE + ". Отменить заказ можно в /my", show_alert=True)
+        await cb.answer(STALE + ". Отменить заказ можно в /my_bookings", show_alert=True)
         return
     data = await state.get_data()
     await state.clear()

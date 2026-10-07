@@ -26,9 +26,16 @@ TEXT_BACK = "⬅️ Главное меню"
 TEXT_CLOSE = "✖️ Закрыть"
 TEXT_CANCEL = "✖️ Отмена"
 
-# Команды в меню Telegram. /schedule, /my, /profile, /trainer, /admin и /add_level работают, но не рекламируются:
-# всё, кроме /add_level, есть в кнопках главного меню.
-BOT_COMMANDS = [("start", "Главное меню"), ("whoami", "Мой Telegram ID")]
+# Команды в меню Telegram: те же пункты, что в главном меню, плюс /whoami. /add_level работает, но не рекламируется.
+BOT_COMMANDS = [
+    ("start", "Главное меню"),
+    ("schedule", "Расписание"),
+    ("my_bookings", "Мои записи"),
+    ("profile", "Профиль"),
+    ("trainer", "Меню тренера"),
+    ("admin", "Меню администратора"),
+    ("whoami", "Мой Telegram ID"),
+]
 
 ADMIN_MENU = markup(
     [("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins")],

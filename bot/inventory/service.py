@@ -111,7 +111,7 @@ def _kind_ordered(training_id: int, user_id: int, kind: str):
 
 def _already_ordered_error(kinds: set[str]) -> InvalidAction:
     names = ", ".join(KIND_LABELS[k].lower() for k in sorted(kinds))
-    return InvalidAction(f"У вас уже есть заказ ({names}). Отмените его в /my, чтобы заказать заново")
+    return InvalidAction(f"У вас уже есть заказ ({names}). Отмените его в /my_bookings, чтобы заказать заново")
 
 
 class InventoryService:

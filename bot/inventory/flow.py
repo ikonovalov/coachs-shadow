@@ -23,7 +23,7 @@ class MyOrder:
 
 
 def cancel_buttons(orders: list[MyOrder], listed_training_ids: set[int], tz: ZoneInfo) -> list[tuple[str, str]]:
-    """Кнопки отмены для /my: только для тренировок, показанных в тексте, с датой и временем старта —
+    """Кнопки отмены для /my_bookings: только для тренировок, показанных в тексте, с датой и временем старта —
     одна и та же единица на двух тренировках даёт разные кнопки."""
     return [
         (f"🗑 {o.starts_at.astimezone(tz):%d.%m %H:%M} · {o.label}", f"my:co:{o.order_id}")
