@@ -10,6 +10,7 @@ from bot.inventory.flow import MyEntry, MyOrder, cancel_buttons, render_my
 from bot.inventory.service import InventoryService
 from bot.participation.models import ParticipationStatus
 from bot.participation.service import ParticipationService
+from bot.telegram.menu import BACK_ROW
 from bot.telegram.ui import club_tz, markup, safe_edit, short_title
 from bot.users.models import User
 
@@ -20,7 +21,7 @@ router.message.filter(F.chat.type == "private")
 router.callback_query.filter(F.message.chat.type == "private")  # «Мои записи» — только в личке
 
 
-async def _render(session: AsyncSession, user: User) -> tuple[str, InlineKeyboardMarkup | None]:
+async def _render(session: AsyncSession, user: User) -> tuple[str, InlineKeyboardMarkup]:
     now = utcnow()
     tz = await club_tz(session)
     views = await InventoryService(session).my_orders(user.telegram_id, now)
@@ -39,7 +40,7 @@ async def _render(session: AsyncSession, user: User) -> tuple[str, InlineKeyboar
     orders = [MyOrder(v.order.id, v.training.id, v.training.starts_at, v.item.label) for v in views]
     # кнопки — только для заказов на тренировки из текста, чтобы у каждой была своя строка
     rows = [[button] for button in cancel_buttons(orders, {t.id for t, _ in upcoming}, tz)]
-    return render_my(entries), markup(*rows) if rows else None
+    return render_my(entries), markup(*rows, BACK_ROW)
 
 
 async def send_my(message: Message, session: AsyncSession, user: User) -> None:

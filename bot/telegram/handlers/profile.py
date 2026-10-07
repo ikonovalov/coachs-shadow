@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.errors import DomainError
+from bot.telegram.menu import BACK_ROW
 from bot.telegram.states import ProfileInput
 from bot.telegram.ui import markup, restore_form, safe_edit, take_form
 from bot.users.models import User
@@ -30,6 +31,7 @@ def profile_markup():
         [("📏 Рост", "pf:h"), ("🦶 Размер ноги", "pf:f")],
         [("⛑ S", "pf:m:S"), ("⛑ M", "pf:m:M"), ("⛑ L", "pf:m:L")],
         [(SHORT_CLEAT[c], f"pf:c:{c}") for c in CLEAT_TYPES],
+        BACK_ROW,
     )
 
 

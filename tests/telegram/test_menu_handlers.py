@@ -1,3 +1,4 @@
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -6,7 +7,7 @@ from bot.core.errors import PermissionDenied
 from bot.telegram.handlers import common
 from bot.telegram.states import AdminInput
 from bot.users.roles import RoleService
-from tests.factories import NOW, add_chat, add_chat_trainer, add_level, add_user
+from tests.factories import NOW, add_chat, add_chat_trainer, add_level, add_training, add_user
 from tests.telegram.fakes import FakeCallback, FakeMessage, callback_data, fsm
 
 MEMBER_MENU = ["menu:schedule", "menu:my", "menu:profile"]
@@ -92,9 +93,25 @@ async def test_schedule_button_with_no_trainings_says_so(session, messenger):
     await state.set_state(AdminInput.value)
     cb = FakeCallback("menu:schedule")
     await common.on_menu_schedule(cb, session, messenger, state)
-    assert cb.message.answers == [("Ближайших тренировок нет", None)]
+    (text, markup), = cb.message.answers
+    assert text == "Ближайших тренировок нет"
+    assert callback_data(markup) == ["menu:back"]
     assert cb.answers == [(None, False)]
     assert await state.get_state() is None
+
+
+async def test_schedule_with_trainings_ends_with_back_button(session, messenger, monkeypatch):
+    monkeypatch.setattr("bot.telegram.handlers.schedule.utcnow", lambda: NOW)
+    trainer = await add_user(session, 2, "trainer")
+    level = await add_level(session)
+    await add_training(
+        session, trainer=trainer, levels=[level], starts_at=NOW + timedelta(days=1), published_at=NOW
+    )
+    cb = FakeCallback("menu:schedule")
+    await common.on_menu_schedule(cb, session, messenger, fsm())
+    assert len(cb.message.answers) == 2
+    assert "menu:back" not in callback_data(cb.message.answers[0][1])  # карточка — общая с постами в чатах
+    assert callback_data(cb.message.answers[-1][1]) == ["menu:back"]
 
 
 async def test_my_button_sends_my_records_and_clears_state(session):
@@ -104,6 +121,7 @@ async def test_my_button_sends_my_records_and_clears_state(session):
     cb = FakeCallback("menu:my")
     await common.on_menu_my(cb, session, member, state)
     assert len(cb.message.answers) == 1
+    assert callback_data(cb.message.answers[0][1])[-1] == "menu:back"
     assert cb.answers == [(None, False)]
     assert await state.get_state() is None
 
@@ -116,6 +134,7 @@ async def test_profile_button_sends_profile_with_edit_buttons_and_clears_state(s
     await common.on_menu_profile(cb, member, state)
     _, markup = cb.message.answers[0]
     assert "pf:h" in callback_data(markup)
+    assert callback_data(markup)[-1] == "menu:back"
     assert cb.answers == [(None, False)]
     assert await state.get_state() is None
 

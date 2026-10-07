@@ -43,6 +43,9 @@ TRAINER_MENU = markup(
 )
 
 
+BACK_ROW = [(TEXT_BACK, MENU_BACK)]
+
+
 def main_menu(role: str) -> InlineKeyboardMarkup:
     rows = [[(TEXT_SCHEDULE, MENU_SCHEDULE)], [(TEXT_MY, MENU_MY)], [(TEXT_PROFILE, MENU_PROFILE)]]
     if role in (Role.TRAINER, Role.ADMIN):

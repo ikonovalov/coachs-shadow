@@ -8,6 +8,8 @@ from bot.core.messenger import Messenger
 from bot.publishing.service import PublishService
 from bot.schedule.service import ScheduleService
 from bot.telegram.keyboards import to_markup
+from bot.telegram.menu import BACK_ROW
+from bot.telegram.ui import markup
 
 router = Router()
 
@@ -16,12 +18,14 @@ async def send_schedule(message: Message, session: AsyncSession, messenger: Mess
     """Общий показ расписания: его зовут и /schedule, и кнопка «📅 Расписание»."""
     trainings = await ScheduleService(session).upcoming(utcnow())
     if not trainings:
-        await message.answer("Ближайших тренировок нет")
+        await message.answer("Ближайших тренировок нет", reply_markup=markup(BACK_ROW))
         return
     publisher = PublishService(session, messenger)
     for training in trainings:
         text, keyboard = await publisher.render(training)
         await message.answer(text, reply_markup=to_markup(keyboard))
+    # у карточек клавиатура общая с постами в чатах, поэтому выход — отдельным сообщением в конце
+    await message.answer("Это все ближайшие тренировки.", reply_markup=markup(BACK_ROW))
 
 
 @router.message(Command("schedule"), F.chat.type == "private")
