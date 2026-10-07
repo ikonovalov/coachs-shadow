@@ -14,17 +14,18 @@ from bot.participation.service import JoinOutcome, ParticipationService
 from bot.publishing.render import render_participants
 from bot.publishing.service import PublishService
 from bot.schedule.forms import (
-    SERIES_FIELD_PROMPTS, TRAINING_FIELD_PROMPTS, apply_series_field, apply_training_field,
+    SERIES_FIELD_PROMPTS, TRAINING_FIELD_PROMPTS, apply_series_field, apply_training_field, series_details,
+    series_title,
 )
 from bot.schedule.models import Training, TrainingSeries
 from bot.schedule.queries import trainer_level_ids
-from bot.schedule.service import ScheduleService, series_to_input
+from bot.schedule.service import ScheduleService, is_active_series, series_to_input
 from bot.telegram.handlers.picker import on_pick, start_picker
 from bot.telegram.menu import TRAINER_MENU
 from bot.telegram.states import EditField
 from bot.telegram.ui import club_tz, local_today, markup, restore_form, safe_edit, short_title, take_form
 from bot.usecases import (
-    cancel_trainings, manual_add_participant, manual_remove_participant, update_series, update_training,
+    cancel_trainings, end_series, manual_add_participant, manual_remove_participant, update_series, update_training,
 )
 from bot.users.models import User
 
@@ -222,16 +223,30 @@ async def on_edit_training(cb: CallbackQuery, state: FSMContext, session: AsyncS
 
 # ---------- правка серии ----------
 
+@router.callback_query(F.data == "tr:slist")
+async def on_series_list(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    await ensure_trainer(session, user)
+    items = await ScheduleService(session).active_series(user, utcnow())
+    rows = [[(series_title(series_to_input(s)), f"tr:series:{s.id}")] for s in items]
+    rows.append([("⬅️ Меню", "tr:menu")])
+    await safe_edit(cb.message, "Мои серии" if items else "Активных серий нет", reply_markup=markup(*rows))
+    await cb.answer()
+
+
 @router.callback_query(F.data.startswith("tr:series:"))
 async def on_series_menu(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
     sid = _id(cb)
-    await _get_editable_series(session, user, sid)
+    series = await _get_editable_series(session, user, sid)
     labels = {"kind": "Тип", "place": "Место", "description": "Описание", "capacity": "Лимит",
               "weekdays": "Дни", "time": "Время", "end_date": "Окончание"}
     rows = [[(f"✏️ {label}", f"tr:sedit:{sid}:{field}")] for field, label in labels.items()]
-    rows.append([("⬅️ Назад", "tr:list")])
-    await safe_edit(cb.message, 
-        "Изменение серии применится ко всем будущим тренировкам. Уже опубликованные будут отменены "
+    today = utcnow().astimezone(await club_tz(session)).date()
+    if is_active_series(series, today):
+        rows.append([("🏁 Завершить серию", f"tr:send:{sid}")])
+    rows.append([("⬅️ Назад", "tr:slist")])
+    details = series_details(series_to_input(series), [level.name for level in series.levels])
+    await safe_edit(cb.message,
+        f"{details}\n\nИзменение серии применится ко всем будущим тренировкам. Уже опубликованные будут отменены "
         "и заменены новыми, записи придётся оформить заново.",
         reply_markup=markup(*rows),
     )
@@ -293,6 +308,29 @@ async def on_series_confirm(cb: CallbackQuery, state: FSMContext, session: Async
     await safe_edit(cb.message, 
         f"Серия обновлена ✅ Заменено опубликованных тренировок: {len(replaced)}",
         reply_markup=markup([("⬅️ К списку", "tr:list")]),
+    )
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("tr:send:"))
+async def on_series_end_ask(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    series = await _get_editable_series(session, user, _id(cb))
+    count = await ScheduleService(session).future_training_count(series.id, utcnow())
+    await safe_edit(cb.message,
+        f"Завершить серию?\n{series_title(series_to_input(series))}\n"
+        f"Будущие тренировки ({count}) будут отменены, записавшимся уйдёт уведомление, "
+        "новые создаваться не будут.",
+        reply_markup=markup([("🏁 Да, завершить", f"tr:sendok:{series.id}"), ("Нет", f"tr:series:{series.id}")]),
+    )
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("tr:sendok:"))
+async def on_series_end_do(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
+    cancelled = await end_series(session, messenger, user, _id(cb), utcnow())
+    await safe_edit(cb.message,
+        f"Серия завершена. Отменено тренировок: {len(cancelled)}",
+        reply_markup=markup([("⬅️ К сериям", "tr:slist")]),
     )
     await cb.answer()
 
