@@ -55,7 +55,7 @@ def render_card(card: CardData, tz: ZoneInfo) -> tuple[str, Keyboard]:
             tid = card.training_id
             keyboard = [
                 [Button("✅ Пойду", f"join:{tid}"), Button("❌ Не пойду", f"decline:{tid}")],
-                [Button("👥 Участники", f"who:{tid}")],
+                [Button(f"👥 Участники ({card.going_count})", f"who:{tid}")],
                 [Button("🚲 Инвентарь", f"inv:{tid}")],
             ]
         else:

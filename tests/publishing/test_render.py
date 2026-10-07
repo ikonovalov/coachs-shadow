@@ -28,7 +28,7 @@ def test_published_card_text_and_buttons():
     assert "Взять воду" in text
     assert kb == [
         [Button("✅ Пойду", "join:7"), Button("❌ Не пойду", "decline:7")],
-        [Button("👥 Участники", "who:7")],
+        [Button("👥 Участники (3)", "who:7")],
         [Button("🚲 Инвентарь", "inv:7")],
     ]
 
