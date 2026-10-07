@@ -267,7 +267,7 @@ async def test_upcoming_lists_only_future_scheduled_within_horizon(session):
     admin, level = await setup_admin_and_level(session)
     soon = await add_training(session, trainer=admin, levels=[level], starts_at=NOW + timedelta(days=1))
     await add_training(session, trainer=admin, levels=[level], starts_at=NOW - timedelta(days=1))
-    await add_training(session, trainer=admin, levels=[level], starts_at=NOW + timedelta(days=60))
+    await add_training(session, trainer=admin, levels=[level], starts_at=NOW + timedelta(days=8))
     cancelled = await add_training(
         session, trainer=admin, levels=[level], starts_at=NOW + timedelta(days=2), status=TrainingStatus.CANCELLED
     )

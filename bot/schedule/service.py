@@ -15,6 +15,7 @@ from bot.schedule.recurrence import occurrences
 from bot.users.models import User
 
 GENERATION_WEEKS = 4
+SCHEDULE_VIEW_DAYS = 7  # окно кнопки «Расписание»; не зависит от горизонта генерации
 MAX_LEVEL_NAME = 50
 
 
@@ -168,7 +169,7 @@ class ScheduleService:
             .where(
                 Training.status == TrainingStatus.SCHEDULED,
                 Training.starts_at > now,
-                Training.starts_at < now + timedelta(weeks=GENERATION_WEEKS),
+                Training.starts_at < now + timedelta(days=SCHEDULE_VIEW_DAYS),
             )
             .order_by(Training.starts_at)
             .limit(limit)
