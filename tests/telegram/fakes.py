@@ -12,9 +12,16 @@ class FakeMessage:
         self.text = text
         self.answers = []  # (text, reply_markup)
         self.edits = []  # (text, reply_markup)
+        self.deleted = False
+        self.delete_error = None  # исключение, которое должен бросить delete()
 
     async def answer(self, text, reply_markup=None):
         self.answers.append((text, reply_markup))
+
+    async def delete(self):
+        if self.delete_error:
+            raise self.delete_error
+        self.deleted = True
 
     async def edit_text(self, text, reply_markup=None):
         self.edits.append((text, reply_markup))

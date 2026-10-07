@@ -1,4 +1,5 @@
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -13,7 +14,8 @@ from bot.telegram.handlers.profile import send_profile
 from bot.telegram.handlers.schedule import send_schedule
 from bot.telegram.handlers.trainer import ensure_trainer
 from bot.telegram.menu import (
-    ADMIN_MENU, MENU_ADMIN, MENU_BACK, MENU_MY, MENU_PROFILE, MENU_SCHEDULE, MENU_TRAINER, TRAINER_MENU, main_menu,
+    ADMIN_MENU, MENU_ADMIN, MENU_BACK, MENU_CLOSE, MENU_MY, MENU_PROFILE, MENU_SCHEDULE, MENU_TRAINER, TRAINER_MENU,
+    main_menu,
 )
 from bot.telegram.ui import safe_edit
 from bot.users.models import User
@@ -21,6 +23,7 @@ from bot.users.roles import RoleService
 
 router = Router()
 MENU_TITLE = "Выберите действие:"
+CLOSED_TEXT = "Меню закрыто. Чтобы открыть снова — /start"
 
 
 @router.message(CommandStart(deep_link=True), F.chat.type == "private")
@@ -55,6 +58,16 @@ async def cmd_whoami(message: Message) -> None:
 async def on_menu_back(cb: CallbackQuery, user: User, state: FSMContext) -> None:
     await state.clear()
     await safe_edit(cb.message, MENU_TITLE, reply_markup=main_menu(user.role))
+    await cb.answer()
+
+
+@router.callback_query(F.data == MENU_CLOSE, F.message.chat.type == "private")
+async def on_menu_close(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    try:
+        await cb.message.delete()
+    except TelegramBadRequest:  # например, сообщению больше 48 часов — Telegram не даёт его удалить
+        await safe_edit(cb.message, CLOSED_TEXT)
     await cb.answer()
 
 

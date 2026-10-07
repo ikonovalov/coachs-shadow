@@ -13,6 +13,7 @@ MENU_PROFILE = "menu:profile"
 MENU_TRAINER = "menu:trainer"
 MENU_ADMIN = "menu:admin"
 MENU_BACK = "menu:back"
+MENU_CLOSE = "menu:close"
 BIND_PREFIX = "bind:"
 ADD_LEVEL_CANCEL = "ad:cancel"
 
@@ -22,6 +23,7 @@ TEXT_PROFILE = "👤 Профиль"
 TEXT_TRAINER = "🎓 Тренер"
 TEXT_ADMIN = "⚙️ Админ"
 TEXT_BACK = "⬅️ Главное меню"
+TEXT_CLOSE = "✖️ Закрыть"
 TEXT_CANCEL = "✖️ Отмена"
 
 # Команды в меню Telegram. /schedule, /my, /profile, /trainer, /admin и /add_level работают, но не рекламируются:
@@ -53,6 +55,7 @@ def main_menu(role: str) -> InlineKeyboardMarkup:
         rows.append([(TEXT_TRAINER, MENU_TRAINER)])
     if role == Role.ADMIN:
         rows.append([(TEXT_ADMIN, MENU_ADMIN)])
+    rows.append([(TEXT_CLOSE, MENU_CLOSE)])
     return markup(*rows)
 
 

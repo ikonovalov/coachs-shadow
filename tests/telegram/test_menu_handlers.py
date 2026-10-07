@@ -2,6 +2,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from aiogram.exceptions import TelegramBadRequest
 
 from bot.core.errors import PermissionDenied
 from bot.telegram.handlers import common
@@ -10,8 +11,8 @@ from bot.users.roles import RoleService
 from tests.factories import NOW, add_chat, add_chat_trainer, add_level, add_training, add_user
 from tests.telegram.fakes import FakeCallback, FakeMessage, callback_data, fsm
 
-MEMBER_MENU = ["menu:schedule", "menu:my", "menu:profile"]
-ADMIN_MENU_BUTTONS = MEMBER_MENU + ["menu:trainer", "menu:admin"]
+MEMBER_MENU = ["menu:schedule", "menu:my", "menu:profile", "menu:close"]
+ADMIN_MENU_BUTTONS = ["menu:schedule", "menu:my", "menu:profile", "menu:trainer", "menu:admin", "menu:close"]
 
 
 async def test_start_shows_menu_without_slash_commands(session):
@@ -38,6 +39,26 @@ async def test_back_clears_state_and_edits_message(session):
     await common.on_menu_back(cb, admin, state)
     assert await state.get_state() is None
     assert callback_data(cb.message.edits[0][1]) == ADMIN_MENU_BUTTONS
+    assert cb.answers == [(None, False)]
+
+
+async def test_close_deletes_menu_and_clears_state():
+    state = fsm()
+    await state.set_state(AdminInput.value)
+    cb = FakeCallback("menu:close")
+    await common.on_menu_close(cb, state)
+    assert cb.message.deleted
+    assert await state.get_state() is None
+    assert cb.answers == [(None, False)]
+
+
+async def test_close_falls_back_to_edit_when_message_cannot_be_deleted():
+    cb = FakeCallback("menu:close")
+    cb.message.delete_error = TelegramBadRequest(method=None, message="message can't be deleted")
+    await common.on_menu_close(cb, fsm())
+    assert not cb.message.deleted
+    text, markup = cb.message.edits[0]
+    assert "/start" in text and markup is None
     assert cb.answers == [(None, False)]
 
 

@@ -8,12 +8,15 @@ def buttons(markup):
 
 
 COMMON = [("📅 Расписание", "menu:schedule"), ("📋 Мои записи", "menu:my"), ("👤 Профиль", "menu:profile")]
+CLOSE = [("✖️ Закрыть", "menu:close")]
 
 
 def test_main_menu_by_role():
-    assert buttons(menu.main_menu(Role.MEMBER)) == COMMON
-    assert buttons(menu.main_menu(Role.TRAINER)) == COMMON + [("🎓 Тренер", "menu:trainer")]
-    assert buttons(menu.main_menu(Role.ADMIN)) == COMMON + [("🎓 Тренер", "menu:trainer"), ("⚙️ Админ", "menu:admin")]
+    assert buttons(menu.main_menu(Role.MEMBER)) == COMMON + CLOSE
+    assert buttons(menu.main_menu(Role.TRAINER)) == COMMON + [("🎓 Тренер", "menu:trainer")] + CLOSE
+    assert buttons(menu.main_menu(Role.ADMIN)) == (
+        COMMON + [("🎓 Тренер", "menu:trainer"), ("⚙️ Админ", "menu:admin")] + CLOSE
+    )
 
 
 def test_admin_button_only_for_admin():
@@ -59,7 +62,7 @@ def test_callback_data_fits_telegram_limit():
 def test_menu_prefixes_do_not_collide_with_existing_ones():
     taken = ("join:", "decline:", "who:", "noop", "tr:", "nf:", "pk:", "ch:", "ad:", "my:", "pf:", "inv:")
     for data in (menu.MENU_SCHEDULE, menu.MENU_MY, menu.MENU_PROFILE, menu.MENU_TRAINER, menu.MENU_ADMIN,
-                 menu.MENU_BACK, menu.BIND_PREFIX):
+                 menu.MENU_BACK, menu.MENU_CLOSE, menu.BIND_PREFIX):
         assert not data.startswith(taken)
 
 
