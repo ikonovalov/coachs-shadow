@@ -24,7 +24,7 @@ async def weekly(session):
     svc = ScheduleService(session)
     series = await svc.create_series(
         admin,
-        SeriesInput(kind="intervals", place="Парк", level_ids=[level.id], weekdays={2},
+        SeriesInput(kind="road", place="Парк", level_ids=[level.id], weekdays={2},
                     start_date=date(2026, 10, 6), start_time=time(19, 0), capacity=5),
         T0,
     )
@@ -131,7 +131,7 @@ async def test_trainer_edits_own_series_within_his_levels(session):
     svc = ScheduleService(session)
     series = await svc.create_series(
         trainer,
-        SeriesInput(kind="intervals", place="Парк", level_ids=[level.id], weekdays={2},
+        SeriesInput(kind="road", place="Парк", level_ids=[level.id], weekdays={2},
                     start_date=date(2026, 10, 6), start_time=time(19, 0)),
         T0,
     )
@@ -222,7 +222,7 @@ async def test_managed_trainings_for_owner_lead_and_admin(session):
     await add_chat_trainer(session, chat_b, 10, is_lead=True)
     svc = ScheduleService(session)
     mk = lambda levels: SeriesInput(  # noqa: E731
-        kind="intervals", place="Парк", level_ids=[l.id for l in levels],
+        kind="road", place="Парк", level_ids=[l.id for l in levels],
         start_date=date(2026, 10, 20), start_time=time(19, 0),
     )
     await svc.create_series(admin, replace(mk([level_a]), trainer_id=10), T0)

@@ -92,7 +92,7 @@ async def test_series_edit_cancels_orders_of_replaced_trainings(session, messeng
     svc = ScheduleService(session)
     series = await svc.create_series(
         admin,
-        SeriesInput(kind="intervals", place="Парк", level_ids=[level.id], weekdays={2},
+        SeriesInput(kind="road", place="Парк", level_ids=[level.id], weekdays={2},
                     start_date=date(2026, 10, 6), start_time=time(19, 0)),
         T0,
     )

@@ -22,7 +22,7 @@ async def published_series(session, messenger):
     series = await ScheduleService(session).create_series(
         admin,
         SeriesInput(
-            kind="intervals", place="Парк", level_ids=[level.id], start_date=date(2026, 10, 20),
+            kind="road", place="Парк", level_ids=[level.id], start_date=date(2026, 10, 20),
             start_time=time(19, 0), weekdays={2}, trainer_id=10,
         ),
         NOW,

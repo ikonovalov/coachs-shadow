@@ -25,7 +25,7 @@ async def weekly_published(session, messenger, capacity=2):
     svc = ScheduleService(session)
     series = await svc.create_series(
         admin,
-        SeriesInput(kind="intervals", place="Парк", level_ids=[level.id], weekdays={2},
+        SeriesInput(kind="road", place="Парк", level_ids=[level.id], weekdays={2},
                     start_date=date(2026, 10, 6), start_time=time(19, 0), capacity=capacity),
         T0,
     )

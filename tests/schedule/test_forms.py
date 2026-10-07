@@ -64,23 +64,23 @@ def test_parse_capacity():
 
 
 def test_parse_kind():
-    assert parse_kind("Интервалы") == "intervals"
+    assert parse_kind("Шоссе") == "road"
     assert parse_kind("длительная") == "endurance"
-    assert parse_kind("technique") == "technique"
+    assert parse_kind("coffeeride") == "coffeeride"
     with pytest.raises(InvalidAction):
         parse_kind("йога")
 
 
 def base():
     return SeriesInput(
-        kind="intervals", place="Парк", level_ids=[1, 2], start_date=TODAY, start_time=time(19, 0),
+        kind="road", place="Парк", level_ids=[1, 2], start_date=TODAY, start_time=time(19, 0),
         weekdays={2, 4}, capacity=10,
     )
 
 
 def test_build_series_input_from_fsm_data():
     data = {
-        "kind": "intervals", "place": "Парк", "level_ids": [1, 2], "weekdays": [2, 4],
+        "kind": "road", "place": "Парк", "level_ids": [1, 2], "weekdays": [2, 4],
         "start_date": "2026-10-06", "start_time": "19:00", "end_date": None, "capacity": 10, "description": "",
     }
     assert build_series_input(data) == base()
@@ -90,10 +90,10 @@ def test_build_series_input_from_fsm_data():
 
 def test_summary_mentions_all_decisions():
     text = summarize_series(base(), ["Новички", "Любители"])
-    for part in ("Интервалы", "Парк", "Новички, Любители", "вт, чт", "19:00", "10"):
+    for part in ("Шоссе", "Парк", "Новички, Любители", "вт, чт", "19:00", "10"):
         assert part in text
     one_off = summarize_series(SeriesInput(
-        kind="technique", place="Зал", level_ids=[1], start_date=date(2026, 10, 20), start_time=time(8, 0),
+        kind="coffeeride", place="Зал", level_ids=[1], start_date=date(2026, 10, 20), start_time=time(8, 0),
     ), ["Новички"])
     assert "20.10.2026" in one_off and "без лимита" in one_off
 
@@ -106,7 +106,7 @@ def test_apply_series_field_changes_only_that_field():
     assert apply_series_field(inp, "capacity", "-", TODAY).capacity is None
     assert apply_series_field(inp, "end_date", "31.12", TODAY).end_date == date(2026, 12, 31)
     assert apply_series_field(inp, "description", "-", TODAY).description == ""
-    assert apply_series_field(inp, "kind", "техника", TODAY).kind == "technique"
+    assert apply_series_field(inp, "kind", "коферайд", TODAY).kind == "coffeeride"
     assert apply_series_field(inp, "place", "Стадион", TODAY).capacity == 10
     with pytest.raises(InvalidAction):
         apply_series_field(inp, "level_ids", "1", TODAY)
@@ -135,7 +135,7 @@ def test_empty_place_is_rejected(empty):
 
 def test_series_title_for_weekly_and_long_place():
     inp = SeriesInput(
-        kind="intervals", place="Парк", level_ids=[1], start_date=date(2026, 10, 6), start_time=time(19, 0),
+        kind="road", place="Парк", level_ids=[1], start_date=date(2026, 10, 6), start_time=time(19, 0),
         weekdays={4, 2},
     )
     assert series_title(inp) == "Вт/Чт 19:00 · Парк"
@@ -145,7 +145,7 @@ def test_series_title_for_weekly_and_long_place():
 
 def test_series_details_adds_start_date():
     inp = SeriesInput(
-        kind="intervals", place="Парк", level_ids=[1], start_date=date(2026, 10, 6), start_time=time(19, 0),
+        kind="road", place="Парк", level_ids=[1], start_date=date(2026, 10, 6), start_time=time(19, 0),
         weekdays={2}, end_date=date(2026, 12, 31),
     )
     text = series_details(inp, ["Новички"])

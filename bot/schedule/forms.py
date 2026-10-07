@@ -6,7 +6,7 @@ from bot.core.errors import InvalidAction
 from bot.schedule.models import TrainingKind
 from bot.schedule.service import SeriesInput, TrainingEdit
 
-KIND_BY_NAME = {"интервалы": "intervals", "длительная": "endurance", "техника": "technique"}
+KIND_BY_NAME = {"шоссе": "road", "трек": "track", "коферайд": "coffeeride", "длительная": "endurance"}
 KIND_LABELS = {v: k.capitalize() for k, v in KIND_BY_NAME.items()}
 WEEKDAY_BY_PREFIX = {
     "пн": 1, "по": 1, "вт": 2, "ср": 3, "чт": 4, "че": 4, "пт": 5, "пя": 5,
@@ -16,7 +16,7 @@ WEEKDAY_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 _NO = {"-", "нет", "—"}
 
 SERIES_FIELD_PROMPTS = {
-    "kind": "Тип: интервалы, длительная или техника",
+    "kind": "Тип: шоссе, трек, коферайд или длительная",
     "place": "Новое место",
     "description": "Новое описание (или «-», чтобы убрать)",
     "capacity": "Лимит мест (число) или «-» без лимита",
@@ -86,7 +86,7 @@ def parse_kind(text: str) -> str:
         return KIND_BY_NAME[value]
     if value in TrainingKind.ALL:
         return value
-    raise InvalidAction("Тип: интервалы, длительная или техника")
+    raise InvalidAction("Тип: шоссе, трек, коферайд или длительная")
 
 
 def parse_place(text: str) -> str:

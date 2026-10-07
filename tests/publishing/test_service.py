@@ -35,7 +35,7 @@ async def test_publish_posts_to_every_chat_of_the_levels_once(session, messenger
     t = await world(session, chats=(-1001, -1002))
     await svc(session, messenger).publish(t.id, NOW)
     assert sorted(m.chat_id for m in messenger.sent) == [-1002, -1001]
-    assert "Интервалы" in messenger.sent[0].text and messenger.sent[0].keyboard  # buttons are live
+    assert "Шоссе" in messenger.sent[0].text and messenger.sent[0].keyboard  # buttons are live
     assert len(await posts(session)) == 2
     await session.refresh(t)
     assert t.published_at == NOW

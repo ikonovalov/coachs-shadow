@@ -7,10 +7,11 @@ from bot.core.db import Base, UTCDateTime
 
 
 class TrainingKind:
-    INTERVALS = "intervals"
+    ROAD = "road"
+    TRACK = "track"
+    COFFEERIDE = "coffeeride"
     ENDURANCE = "endurance"
-    TECHNIQUE = "technique"
-    ALL = (INTERVALS, ENDURANCE, TECHNIQUE)
+    ALL = (ROAD, TRACK, COFFEERIDE, ENDURANCE)
 
 
 class TrainingStatus:

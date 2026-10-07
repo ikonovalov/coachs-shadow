@@ -25,7 +25,7 @@ async def setup(session_factory):
         await add_chat(s, level, -1001)
         await ScheduleService(s).create_series(
             admin,
-            SeriesInput(kind="intervals", place="Парк", level_ids=[level.id],
+            SeriesInput(kind="road", place="Парк", level_ids=[level.id],
                         start_date=date(2026, 10, 20), start_time=time(19, 0)),
             T0,
         )

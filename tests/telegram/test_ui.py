@@ -26,7 +26,7 @@ async def test_short_title(session):
     t = await add_training(
         session, trainer=trainer, levels=[level], starts_at=datetime(2026, 10, 20, 16, 0, tzinfo=timezone.utc)
     )
-    assert short_title(t, ZoneInfo("Europe/Moscow")) == "вторник, 20.10 19:00–20:30 · Интервалы"
+    assert short_title(t, ZoneInfo("Europe/Moscow")) == "вторник, 20.10 19:00–20:30 · Шоссе"
 
 
 # ---------- FSM claim / safe edit ----------

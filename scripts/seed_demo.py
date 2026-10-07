@@ -30,7 +30,7 @@ async def main() -> None:
 
         await ScheduleService(session).create_series(
             admin,
-            SeriesInput(kind="intervals", place="Парк", level_ids=[level.id], start_date=tomorrow,
+            SeriesInput(kind="road", place="Парк", level_ids=[level.id], start_date=tomorrow,
                         start_time=time(19, 0), capacity=10, description="Демо-тренировка"),
             now,
         )

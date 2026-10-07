@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from bot.core.messenger import Button, Keyboard
 
-KIND_NAMES = {"intervals": "Интервалы", "endurance": "Длительная", "technique": "Техника"}
+KIND_NAMES = {"road": "Шоссе", "track": "Трек", "coffeeride": "Коферайд", "endurance": "Длительная"}
 WEEKDAYS = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
 ALERT_LIMIT = 190  # Telegram callback alerts are capped at 200 characters
 

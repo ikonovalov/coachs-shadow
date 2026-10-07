@@ -36,10 +36,10 @@ def test_review_for_replacement_mentions_it_and_keeps_confirmed():
 def test_render_my():
     assert render_my([]) == "Записей пока нет. Расписание: /schedule"
     text = render_my([
-        MyEntry("вторник, 20.10 19:00–20:30 · Интервалы", "идёте", ["Велосипед №7", "Шлем №2"]),
-        MyEntry("четверг, 22.10 19:00–20:30 · Техника", "не идёте", []),
+        MyEntry("вторник, 20.10 19:00–20:30 · Шоссе", "идёте", ["Велосипед №7", "Шлем №2"]),
+        MyEntry("четверг, 22.10 19:00–20:30 · Коферайд", "не идёте", []),
     ])
-    assert "Интервалы" in text and "идёте" in text and "Велосипед №7" in text and "не идёте" in text
+    assert "Шоссе" in text and "идёте" in text and "Велосипед №7" in text and "не идёте" in text
 
 
 def test_cancel_buttons_name_the_training_and_match_listed_lines():

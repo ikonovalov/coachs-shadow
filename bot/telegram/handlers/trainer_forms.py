@@ -24,7 +24,10 @@ log = logging.getLogger(__name__)
 router = Router()
 router.message.filter(F.chat.type == "private")
 
-KIND_ROW = [("Интервалы", "nf:kind:intervals"), ("Длительная", "nf:kind:endurance"), ("Техника", "nf:kind:technique")]
+KIND_ROWS = [
+    [("Шоссе", "nf:kind:road"), ("Трек", "nf:kind:track")],
+    [("Коферайд", "nf:kind:coffeeride"), ("Длительная", "nf:kind:endurance")],
+]
 CANCEL_ROW = [("✖️ Отмена", "nf:no")]
 TEXT = (F.text, ~F.text.startswith("/"))
 
@@ -35,7 +38,7 @@ async def on_new(cb: CallbackQuery, state: FSMContext, session: AsyncSession, us
     await state.clear()
     await state.update_data(one_off=cb.data.endswith(":one"), level_ids=[])
     await state.set_state(NewTraining.kind)
-    await safe_edit(cb.message, "Тип тренировки:", reply_markup=markup(KIND_ROW, CANCEL_ROW))
+    await safe_edit(cb.message, "Тип тренировки:", reply_markup=markup(*KIND_ROWS, CANCEL_ROW))
     await cb.answer()
 
 

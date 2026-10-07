@@ -13,7 +13,7 @@ from tests.factories import NOW, add_chat, add_chat_trainer, add_level, add_trai
 
 def inp(level_ids, **kw):
     base = dict(
-        kind="intervals", place="Парк", level_ids=level_ids,
+        kind="road", place="Парк", level_ids=level_ids,
         start_date=date(2026, 10, 20), start_time=time(19, 0),
     )
     base.update(kw)

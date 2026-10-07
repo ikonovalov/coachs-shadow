@@ -49,7 +49,7 @@ async def add_training(
     series = TrainingSeries(
         trainer_id=trainer.telegram_id,
         place="Парк",
-        kind="intervals",
+        kind="road",
         description="",
         capacity=capacity,
         weekdays="",
@@ -66,7 +66,7 @@ async def add_training(
         duration_min=90,
         trainer_id=trainer.telegram_id,
         place="Парк",
-        kind="intervals",
+        kind="road",
         description="",
         capacity=capacity,
         status=status,

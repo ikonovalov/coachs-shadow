@@ -18,7 +18,7 @@ async def make_series(session, *, weekdays=(2, 4), start=date(2026, 10, 6), trai
     series = await ScheduleService(session).create_series(
         admin,
         SeriesInput(
-            kind="intervals", place="Парк", level_ids=[level.id], start_date=start,
+            kind="road", place="Парк", level_ids=[level.id], start_date=start,
             start_time=time(19, 0), weekdays=set(weekdays), trainer_id=trainer_id,
         ),
         now,
@@ -88,7 +88,7 @@ async def test_end_series_twice_and_unknown_and_one_off(session):
     level = await add_level(session, "Другой", 1)
     one_off = await svc.create_series(
         admin,
-        SeriesInput(kind="intervals", place="Парк", level_ids=[level.id],
+        SeriesInput(kind="road", place="Парк", level_ids=[level.id],
                     start_date=date(2026, 10, 20), start_time=time(19, 0)),
         T0,
     )
@@ -132,13 +132,13 @@ async def test_active_series_scope_and_filters(session):
     level = await add_level(session, "Другой", 1)
     series_b = await svc.create_series(
         admin,
-        SeriesInput(kind="intervals", place="Стадион", level_ids=[level.id], start_date=date(2026, 10, 6),
+        SeriesInput(kind="road", place="Стадион", level_ids=[level.id], start_date=date(2026, 10, 6),
                     start_time=time(19, 0), weekdays={3}, trainer_id=11),
         T0,
     )
     await svc.create_series(  # разовая в список не попадает
         admin,
-        SeriesInput(kind="intervals", place="Разовая", level_ids=[level.id],
+        SeriesInput(kind="road", place="Разовая", level_ids=[level.id],
                     start_date=date(2026, 10, 20), start_time=time(19, 0), trainer_id=11),
         T0,
     )

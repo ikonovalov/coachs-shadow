@@ -28,7 +28,7 @@ async def setup_series(session):
 
     def data(place, trainer_id, weekdays):
         return SeriesInput(
-            kind="intervals", place=place, level_ids=[level.id], start_date=date(2026, 10, 20),
+            kind="road", place=place, level_ids=[level.id], start_date=date(2026, 10, 20),
             start_time=time(19, 0), weekdays=weekdays, trainer_id=trainer_id,
         )
 
