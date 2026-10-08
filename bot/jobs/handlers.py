@@ -7,6 +7,7 @@ from bot.jobs.models import ScheduledJob
 from bot.jobs.queue import JobKind
 from bot.publishing.service import PublishService
 from bot.schedule.service import ScheduleService
+from bot.usecases import close_training, send_reminders
 
 
 async def handle_job(session: AsyncSession, messenger: Messenger, job: ScheduledJob, now: datetime) -> None:
@@ -16,8 +17,8 @@ async def handle_job(session: AsyncSession, messenger: Messenger, job: Scheduled
     elif job.kind == JobKind.PUBLISH:
         await PublishService(session, messenger).publish(job.training_id, now)
     elif job.kind == JobKind.REMIND_2H:
-        await PublishService(session, messenger).send_reminders(job.training_id, now)
+        await send_reminders(session, messenger, job.training_id, now)
     elif job.kind == JobKind.CLOSE:
-        await PublishService(session, messenger).close(job.training_id, now)
+        await close_training(session, messenger, job.training_id, now)
     else:
         raise ValueError(f"unknown job kind {job.kind!r}")

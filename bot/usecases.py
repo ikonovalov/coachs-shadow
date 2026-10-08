@@ -1,21 +1,28 @@
 """Operations that span several features. Telegram handlers call these, never the services directly
 for state-changing actions that must also update posts."""
 import logging
+from collections import defaultdict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.core.messenger import Messenger
-from bot.core.settings import get_setting
+from bot.billing.models import Charge, Subscription
+from bot.billing.render import render_new_charges
+from bot.billing.service import AttendanceResult, BillingService
+from bot.billing.views import BillingViews
+from bot.core.messenger import Button, Keyboard, Messenger
+from bot.core.money import format_money
+from bot.core.permissions import Role
+from bot.core.settings import billing_enabled, get_setting
 from bot.inventory.models import InventoryItem, InventoryOrder
 from bot.inventory.service import InventoryService
 from bot.participation.models import ParticipationStatus
 from bot.participation.service import JoinOutcome, ParticipationService
-from bot.publishing.render import format_when
+from bot.publishing.render import KIND_NAMES, format_when
 from bot.publishing.service import PublishService
-from bot.schedule.models import Training
+from bot.schedule.models import Training, TrainingStatus
 from bot.schedule.service import ReplacedTraining, ScheduleService, SeriesInput, TrainingEdit
 from bot.users.models import User
 
@@ -39,11 +46,11 @@ async def _cancel_participant_orders(
     await _notify_quietly(messenger, user_id, "Заказы инвентаря на тренировку отменены: " + ", ".join(labels))
 
 
-async def _notify_quietly(messenger: Messenger, user_id: int, text: str) -> None:
+async def _notify_quietly(messenger: Messenger, user_id: int, text: str, keyboard: Keyboard | None = None) -> None:
     """Уведомление после уже закоммиченного изменения: сбой доставки логируется и не прерывает use case
     (обновление постов и остальные уведомления должны выполниться)."""
     try:
-        delivered = await messenger.notify(user_id, text)
+        delivered = await messenger.notify(user_id, text, keyboard)
     except Exception:
         log.warning("notify to %s failed", user_id, exc_info=True)
         return
@@ -176,3 +183,126 @@ async def manual_remove_participant(
         await publisher.refresh_posts(training_id)
         await publisher.notify_manual_change(training_id, user_id, added=False)
     return removed
+
+
+async def _title(session: AsyncSession, training: Training) -> str:
+    tz = ZoneInfo(await get_setting(session, "club_timezone"))
+    return f"{KIND_NAMES.get(training.kind, training.kind)}, {format_when(training.starts_at, training.duration_min, tz)}"
+
+
+async def _admin_ids(session: AsyncSession) -> list[int]:
+    return list(await session.scalars(select(User.telegram_id).where(User.role == Role.ADMIN)))
+
+
+async def close_training(session: AsyncSession, messenger: Messenger, training_id: int, now: datetime) -> None:
+    """Закрытие тренировки: статус, пост, начисления и уведомления. Идемпотентно: повтор после сбоя
+    не создаёт начислений и не уведомляет повторно о уже созданных."""
+    before = await session.get(Training, training_id)
+    was_done = before is not None and before.status == TrainingStatus.DONE
+    await PublishService(session, messenger).close(training_id, now)
+    if not await billing_enabled(session):
+        return  # оплата отключена: тренировка закрыта как раньше, без начислений и сообщений
+    created = await BillingService(session).charge_training(training_id, now)
+    training = await session.get(Training, training_id)
+    if training is None or training.status != TrainingStatus.DONE:
+        return
+    title = await _title(session, training)
+    sub_ids = {c.subscription_id for c in created if c.subscription_id is not None}
+    sub_names = (
+        {s.id: s.name for s in await session.scalars(select(Subscription).where(Subscription.id.in_(sub_ids)))}
+        if sub_ids else {}
+    )
+    by_user: dict[int, list[Charge]] = defaultdict(list)
+    for charge in created:
+        by_user[charge.user_id].append(charge)
+    for user_id, charges in by_user.items():
+        await _notify_quietly(messenger, user_id, render_new_charges(title, charges, sub_names))
+    going = await ParticipationService(session).going_count(training_id)
+    if going and not was_done:  # сообщение тренеру — только при первом закрытии
+        await _notify_quietly(
+            messenger, training.trainer_id,
+            f"🏁 Началась тренировка: {title}. Записалось {going}. После занятия отметьте, кто пришёл.",
+            [[Button("✅ Проверить посещение", f"att:o:{training_id}")]],
+        )
+
+
+async def set_attendance(
+    session: AsyncSession, messenger: Messenger, actor: User, training_id: int, user_id: int, present: bool,
+    now: datetime,
+) -> AttendanceResult:
+    result = await BillingService(session).set_attendance(actor, training_id, user_id, present, now)
+    log.info("attendance training=%s user=%s present=%s -> %s", training_id, user_id, present, result)
+    if not result.changed:
+        return result
+    training = await session.get(Training, training_id)
+    title = await _title(session, training)
+    if present:
+        await _notify_quietly(messenger, user_id, f"✅ Тренер отметил, что вы были на тренировке: {title}")
+    else:
+        text = f"Занятие не засчитано: {title}."
+        if result.returned_to:
+            text += f" Вернули на абонемент «{result.returned_to}»."
+        if result.refund_due:
+            text += " Вы уже платили — деньги вернёт администратор."
+        await _notify_quietly(messenger, user_id, text)
+    for uid, amount in result.pending_changes:
+        if uid != user_id:
+            await _notify_quietly(messenger, uid, f"➕ Доплата за {title} изменилась: {format_money(amount)}")
+    notes: list[str] = []
+    if result.refund_due:
+        notes.append(f"К возврату: {(await session.get(User, user_id)).name}, {title}")
+    for uid, paid, due in result.paid_diffs:
+        name = (await session.get(User, uid)).name
+        notes.append(f"Доплата {title}: {name} оплатил(а) {format_money(paid)}, теперь {format_money(due)}")
+    if notes:
+        for admin_id in await _admin_ids(session):
+            await _notify_quietly(messenger, admin_id, "💰 " + "\n".join(notes))
+    return result
+
+
+async def issue_subscription(
+    session: AsyncSession, messenger: Messenger, actor: User, user_id: int, plan_id: int, paid: bool, now: datetime
+) -> Subscription:
+    sub = await BillingService(session).issue_subscription(actor, user_id, plan_id, paid=paid, now=now)
+    tz = ZoneInfo(await get_setting(session, "club_timezone"))
+    until = f"до {sub.expires_at.astimezone(tz):%d.%m.%Y}" if sub.expires_at else "бессрочный"
+    text = f"🎟 Вам выдан абонемент «{sub.name}»: {sub.sessions_total} занятий, {until}."
+    if not paid:
+        text += f" К оплате: {format_money(sub.price)}."
+    await _notify_quietly(messenger, user_id, text)
+    return sub
+
+
+async def mark_charge_paid(
+    session: AsyncSession, messenger: Messenger, actor: User, charge_id: int, now: datetime
+) -> Charge:
+    charge = await BillingService(session).mark_charge_paid(actor, charge_id, now)
+    await _notify_quietly(messenger, charge.user_id, f"✅ Оплата принята: {format_money(charge.amount)}. Спасибо!")
+    return charge
+
+
+async def mark_subscription_paid(
+    session: AsyncSession, messenger: Messenger, actor: User, subscription_id: int, now: datetime
+) -> Subscription:
+    sub = await BillingService(session).mark_subscription_paid(actor, subscription_id, now)
+    await _notify_quietly(messenger, sub.user_id, f"✅ Оплата принята: абонемент «{sub.name}», {format_money(sub.price)}.")
+    return sub
+
+
+async def mark_user_paid(
+    session: AsyncSession, messenger: Messenger, actor: User, user_id: int, now: datetime
+) -> int:
+    closed = await BillingService(session).mark_user_paid(actor, user_id, now)
+    if closed:
+        await _notify_quietly(messenger, user_id, "✅ Оплата принята. Спасибо!")
+    return closed
+
+
+async def send_reminders(session: AsyncSession, messenger: Messenger, training_id: int, now: datetime) -> None:
+    if not await billing_enabled(session):
+        await PublishService(session, messenger).send_reminders(training_id, now)
+        return
+    views = BillingViews(session)
+    await PublishService(session, messenger).send_reminders(
+        training_id, now, hint_for=lambda user_id: views.payment_hint(training_id, user_id, now)
+    )

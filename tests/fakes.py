@@ -16,6 +16,7 @@ class FakeMessenger:
         self.sent: list[Message] = []
         self.edits: list[Message] = []
         self.notifications: list[tuple[int, str]] = []
+        self.notification_keyboards: list[tuple[int, object]] = []
         self.unreachable: set[int] = set()
         self.unavailable_chats: set[int] = set()
         self.deleted_posts: set[tuple[int, int]] = set()
@@ -39,6 +40,7 @@ class FakeMessenger:
     async def notify(self, user_id, text, keyboard=None) -> bool:
         if user_id in self.unreachable:
             return False
+        self.notification_keyboards.append((user_id, keyboard))
         self.notifications.append((user_id, text))
         return True
 

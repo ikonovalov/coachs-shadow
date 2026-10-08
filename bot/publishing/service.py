@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -128,14 +129,25 @@ class PublishService:
         await self.session.commit()
         await self.refresh_posts(training_id)
 
-    async def send_reminders(self, training_id: int, now: datetime) -> None:
+    async def send_reminders(
+        self, training_id: int, now: datetime, hint_for: Callable[[int], Awaitable[str | None]] | None = None
+    ) -> None:
         training = await self.session.get(Training, training_id)
         if training is None or training.status != TrainingStatus.SCHEDULED or training.starts_at <= now:
             return
         tz = await self._tz()
         text = f"⏰ Скоро тренировка: {self._title(training, tz)}, {training.place}"
         for user_id in await self._going_ids(training_id):
-            if not await self.messenger.notify(user_id, text):
+            message = text
+            if hint_for is not None:
+                try:
+                    hint = await hint_for(user_id)
+                except Exception:
+                    log.warning("payment hint for %s failed", user_id, exc_info=True)
+                    hint = None
+                if hint:
+                    message += "\n" + hint
+            if not await self.messenger.notify(user_id, message):
                 log.info("reminder not delivered to %s (bot not started?)", user_id)
 
     async def announce_cancelled(self, training_id: int) -> None:
