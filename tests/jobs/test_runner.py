@@ -100,7 +100,7 @@ async def test_generate_job_reschedules_itself(session_factory, messenger):
 
 
 async def test_bootstrap_is_idempotent(session_factory):
-    cfg = SimpleNamespace(admin_ids=[7], club_timezone="Asia/Yekaterinburg")
+    cfg = SimpleNamespace(admin_ids=[7], club_timezone="Asia/Yekaterinburg", billing_enabled=False)
     await bootstrap(session_factory, cfg, T0)
     await bootstrap(session_factory, cfg, T0)
     async with session_factory() as s:

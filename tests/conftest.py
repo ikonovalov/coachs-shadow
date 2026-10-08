@@ -32,3 +32,11 @@ from tests.fakes import FakeMessenger  # noqa: E402
 @pytest.fixture
 def messenger():
     return FakeMessenger()
+
+
+@pytest.fixture
+async def billing_on(session):
+    """Включает оплату в тестовой БД (по умолчанию она выключена, как в проде)."""
+    from bot.core.settings import set_setting
+
+    await set_setting(session, "billing_enabled", "1")

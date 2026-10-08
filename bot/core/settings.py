@@ -13,6 +13,7 @@ DEFAULTS: dict[str, str] = {
     "duration_min": "90",
     "inventory_deadline_h": "",
     "club_timezone": "Europe/Moscow",
+    "billing_enabled": "0",
 }
 
 
@@ -29,6 +30,11 @@ class Setting(Base):
 async def get_setting(session: AsyncSession, key: str) -> str:
     row = await session.get(Setting, key)
     return row.value if row is not None else DEFAULTS[key]
+
+
+async def billing_enabled(session: AsyncSession) -> bool:
+    """Включена ли оплата. Значение пишет bootstrap из Config при каждом старте."""
+    return await get_setting(session, "billing_enabled") == "1"
 
 
 async def set_setting(session: AsyncSession, key: str, value: str) -> None:

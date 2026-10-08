@@ -10,6 +10,7 @@ class Config(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///coachs_shadow.db"
     club_timezone: str = "Europe/Moscow"
     log_level: str = "INFO"
+    billing_enabled: bool = False  # оплата и абонементы; меняется только перезапуском
 
     @property
     def admin_ids(self) -> list[int]:
