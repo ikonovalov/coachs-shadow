@@ -95,6 +95,7 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
 | `participation` | запись «Пойду / Не пойду», ручное добавление/удаление тренером, контроль лимита мест |
 | `publishing` | карточка тренировки (`render.py`), публикация в чаты, обновление постов, напоминания, закрытие, объявления об отмене/замене |
 | `inventory` | парк инвентаря (велосипеды, педали, туфли, шлемы), подбор по профилю, заказ на тренировку, отмена, сводка для тренера |
+| `billing` | оплата и абонементы (за флагом `BILLING_ENABLED`): цены (`PriceRule` по типу, переопределение в серии), тарифы и выданные абонементы на набор серий, начисления (`Charge`: `session` / `surcharge` / `inventory`), отметки посещения, отметки оплаты и возвратов (`CatalogService`, `BillingService`, `BillingViews`) |
 | `jobs` | очередь отложенных задач и её исполнитель |
 
 Правила:
@@ -102,7 +103,8 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
 - **Фичи не импортируют сервисы друг друга.** Всё, что меняет состояние и одновременно должно обновить
   посты или уведомить людей, живёт в `bot/usecases.py`: `join_training`, `decline_training`,
   `cancel_trainings`, `end_series`, `update_series`, `update_training`, `manual_add_participant`,
-  `manual_remove_participant`, `set_item_active`. Use case = вызов сервиса + `PublishService.refresh_posts` /
+  `manual_remove_participant`, `set_item_active`, `close_training`, `set_attendance`, `issue_subscription`,
+  `mark_charge_paid`, `mark_subscription_paid`, `mark_user_paid`, `send_reminders`. Use case = вызов сервиса + `PublishService.refresh_posts` /
   объявление / уведомление.
   Отказ, ручное удаление, отмена тренировки и замена при правке серии также отменяют активные заказы
   инвентаря (`InventoryService.cancel_for_participant` / `cancel_for_training`); участнику, который
@@ -112,6 +114,9 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   тренировка); возврат в парк ничего больше не меняет. Уведомления в use case'ах шлются через
   `_notify_quietly`: изменение уже закоммичено, поэтому исключение `notify` логируется и не прерывает
   обновление постов и остальные уведомления.
+- Закрытие тренировки (`close_training`) = `PublishService.close` + `BillingService.charge_training` + уведомления ученикам
+  и сообщение тренеру с кнопкой посещения; повтор безопасен (уникальный ключ `Charge`, о уже созданном не уведомляем
+  повторно). `schedule` и `publishing` читают цены только через модели, `bot/billing/queries.py` и поля `Training`.
 - Фичи могут делиться моделями и read-хелперами из `bot/schedule/queries.py` (`can_manage`,
   `going_count`, `target_chat_ids`, …), но не сервисами.
 - Права проверяются **в сервисах**, а не в обработчиках: данные в callback и FSM подделываются.
@@ -148,7 +153,7 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   уровни кнопками, `bind:<id>` привязывает через `ScheduleService.bind_chat`; с аргументом — по названию.
   Вынесено из `admin.py`, чей роутер пропускает колбэки только из личного чата.
 - **Роутеры** подключаются в порядке: `trainer_forms`, `common`, `binding`, `picker`, `park`, `admin`, `chats`, `profile`, `my`,
-  `inventory`, `schedule`, `trainer`, `participation`. `trainer_forms` — первым, потому что владеет `tr:new:*`, а у
+  `inventory`, `payments` / `pay_admin` / `attendance` (при выключенной оплате вместо них `billing_off`), `schedule`, `trainer`, `participation`. `trainer_forms` — первым, потому что владеет `tr:new:*`, а у
   `trainer` есть catch-all `tr:`; по той же причине `inventory` (владеет `tr:inv:*`) стоит раньше `trainer`, а `park`
   (владеет `ad:park`, `ad:pk*`) — раньше `admin` с его catch-all `ad:`. Каждый роутер заканчивается stateless-обработчиком своего префикса `<prefix>:`,
   отвечающим на устаревшие кнопки.
@@ -180,6 +185,22 @@ tests/               зеркалит bot/; fakes.py (FakeMessenger, FakeMembers
   `ITEM_FORMATS`); неверная строка → подсказка формата, состояние сохраняется. Права (только админ) проверяют
   `InventoryService.add_item` / `set_active` / `cancel_for_item`. Переключение идёт через use case
   `set_item_active`; при выводе из парка админ видит, сколько заказов отменено («Отменено заказов: N»).
+- **Оплата ученика** (`handlers/payments.py`, только личка): `/payments` и пункт «💳 Оплата» (`menu:pay`) — абонементы с остатком и
+  сроком, «к оплате», последние занятия (`BillingViews.my_overview`, текст — `billing/render.render_my_billing`); собственных
+  колбэков у экрана нет, возврат — `menu:back`. Подсказка «будет списано с абонемента / к оплате» приходит при «Пойду»
+  и в напоминании за 2 часа.
+- **Админ-раздел «💰 Оплаты»** (`handlers/pay_admin.py`, префикс `pay:`, только админ): должники (карточка ученика, «Оплачено»
+  по начислению / по абонементу / «Всё оплачено»), выдача абонемента (picker `issue_sub` → тариф → «выдать, оплачен /
+  не оплачен»), тарифы (удаление по образцу «Админов»: `❌ <имя>` → подтверждение; создание — строка `Название; занятий;
+  цена; срок` и выбор серий переключателями, состояние `PlanForm`), цены (по типу и по серии, строка `разовая; доплата`,
+  состояние `PriceInput`), возвраты (подтверждение `pay:rfd` → `pay:rfy`).
+- **Посещение** (`handlers/attendance.py`, префикс `att:`): кнопка «✅ Проверить посещение» приходит тренеру при закрытии
+  тренировки; переключатель несёт целевое состояние (`att:t:<тренировка>:<ученик>:<0|1>`), поэтому повторный тап ничего не
+  переключает обратно; «➕ Пришёл без записи» — picker `att_add` (права проверяются повторно).
+- **Флаг оплаты** (`BILLING_ENABLED`). Меню строятся с параметром `billing` (`main_menu`, `admin_menu`, `bot_commands`),
+  обработчики получают `billing_enabled` из workflow data (`start_polling(..., billing_enabled=…)`; по умолчанию `False`).
+  При выключенной оплате роутеры оплаты не подключаются, а `handlers/billing_off.py` отвечает «Оплата отключена» на старые
+  кнопки (`pay:*`, `att:*`) и на `/payments`; `menu:pay` отвечает так же из `common`.
 - **Формы и повторные нажатия.** Апдейты обрабатываются параллельно, поэтому подтверждающие
   обработчики сначала «забирают» форму (`take_form`), затем вызывают сервис, и при `DomainError`
   возвращают её (`restore_form`) — двойной тап не выполнит действие дважды. Экраны правятся через `safe_edit`.
@@ -262,6 +283,22 @@ erDiagram
   `InventoryService` ограничивает 720 ч (нечитаемое — «без дедлайна»).
 - Новые модели обязательно импортировать в `bot/registry.py`, иначе Alembic их не увидит.
 
+### Оплата (`bot/billing`)
+
+Суммы в копейках, время в UTC.
+
+- `price_rules(kind, single_price, surcharge_per_person)` — цены по типу тренировки; `training_series` и `trainings` получили
+  `single_price` и `surcharge_per_person` (`NULL` — не задано; `0` у доплаты — явно без доплаты). Серия берёт цену из своего
+  поля, иначе из `price_rules` (`resolve_prices`); тренировка копирует результат при создании (снимок), а недостающее поле
+  при закрытии берётся из серии/типа на тот момент.
+- `subscription_plans` + `subscription_plan_series` — тарифы на набор серий (`valid_months` `NULL` — бессрочный).
+  `subscriptions` + `subscription_series` — выданные абонементы: название, цена и набор серий скопированы при выдаче
+  (удаление тарифа их не меняет), остаток — `sessions_left`.
+- `charges` — начисления (`session` / `surcharge` / `inventory`; статусы `pending` / `covered` / `paid` / `void`),
+  уникальны по `(training_id, user_id, kind, ref_id)` (`ref_id` — id заказа инвентаря, иначе 0). Долг = сумма `pending` +
+  неоплаченные абонементы. `refund_due` / `refunded_at` — возвраты.
+- `attendance` — явные отметки посещения; нет строки — пришёл тот, кто записался.
+
 ## 6. Роли и доступ
 
 **Роли**: `admin`, `trainer`, `member` (`core/permissions.py`). Администраторы из `ADMIN_IDS` синхронизируются
@@ -330,6 +367,17 @@ sequenceDiagram
   безопасно. Список активных серий (`active_series`): повторяющиеся, `end_date` пуст или не раньше местной
   сегодняшней даты; тренер видит свои, админ все.
 
+- **Закрытие и начисления** (`close_training`, только при включённой оплате): статус `done` → `charge_training`: для каждого
+  пришедшего подходящий абонемент (серия в наборе, остаток, срок не истёк к старту; раньше истекающий первым, бессрочные
+  последними) списывается условным `UPDATE … sessions_left − 1 WHERE sessions_left > 0`, иначе начисляется разовая цена;
+  доплата = `тариф × (n + 1) / n` с округлением вверх (тариф платят все, доля тренера делится между учениками; абонементом
+  не покрывается); активные заказы инвентаря с ценой становятся начислениями `inventory`. Затем уведомления ученикам и
+  сообщение тренеру с кнопкой посещения. Тренировки, закрытые при выключенной оплате, не начисляются и после включения.
+- **Посещение** (`set_attendance`): тренер тренировки (и главный тренер её чатов) и админ; для тренера окно 72 часа от конца,
+  для админа без ограничений. «Не пришёл»: `pending` → `void`, `covered` → `void` + единица возвращается в абонемент,
+  `paid` → `void` + `refund_due` (в списке админа «К возврату»). «Пришёл» (в т. ч. без записи) восстанавливает оплаченное и
+  начисляет остальное заново. Доплата `pending` пересчитывается, по уже оплаченной админам уходит разница.
+
 ## 8. Запись и лимит мест
 
 `ParticipationService` — самое чувствительное к конкурентности место. SQLite игнорирует `FOR UPDATE`, а
@@ -345,6 +393,9 @@ pysqlite выполняет SELECT вне транзакции, поэтому �
 Исходы `join`: `JOINED`, `ALREADY`, `FULL`. Конкурентность подкреплена тестом в `tests/participation/` —
 его нужно сохранять зелёным при любых правках сервиса. Ручное добавление тренером может превысить лимит
 (`allow_over_limit`).
+
+Остаток абонемента и статус начисления меняются так же — условным `UPDATE` с проверкой rowcount; тест
+`tests/billing/test_charging.py::test_last_unit_goes_to_exactly_one_of_two_concurrent_closes` должен оставаться зелёным.
 
 ### Заказ инвентаря
 
@@ -393,7 +444,12 @@ pysqlite выполняет SELECT вне транзакции, поэтому �
 закрывается.
 
 Переменные окружения (`.env.example`): `BOT_TOKEN`, `ADMIN_IDS` (через запятую), `DATABASE_URL`
-(по умолчанию SQLite-файл), `CLUB_TIMEZONE`, `LOG_LEVEL`.
+(по умолчанию SQLite-файл), `CLUB_TIMEZONE`, `LOG_LEVEL`, `BILLING_ENABLED` (оплата и абонементы; по умолчанию `false`,
+меняется только перезапуском).
+
+Флаг оплаты: `Config.billing_enabled` → `bootstrap` при каждом старте записывает его в `settings["billing_enabled"]`
+(читают `close_training`, `send_reminders`, `PublishService.build_card`; в «⚙️ Настройки» ключа нет), а в Telegram-слой он
+приходит как workflow data `billing_enabled`. При `false` поведение бота прежнее. Сервисы `bot/billing` флага не знают.
 
 Логирование: единственная точка настройки — `setup_logging()` в `bot/core/logging_setup.py`; модули берут
 `log = logging.getLogger(__name__)` и не вызывают `basicConfig`. Шумные библиотеки (`sqlalchemy.engine`,

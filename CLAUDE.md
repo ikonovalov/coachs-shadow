@@ -23,7 +23,7 @@ alembic revision --autogenerate -m "msg" # после изменения мод�
 
 Полное описание (слои, модель данных, роли и доступ, жизненный цикл тренировки, очередь задач, запуск, чек-лист расширения) — в [`ARCHITECTURE.md`](ARCHITECTURE.md); перед изменением слоя прочитайте соответствующий раздел. При изменении поведения обновляйте его. Здесь его не пересказывайте.
 
-Клавиатуры меню и `callback_data` (`menu:*`, `bind:*`, `ad:cancel`) живут в `bot/telegram/menu.py` (чистые построители, тестируются без Telegram); меню команд Telegram задаёт `BOT_COMMANDS` (все пункты главного меню как команды + `/whoami`).
+Клавиатуры меню и `callback_data` (`menu:*`, `bind:*`, `ad:cancel`, `pay:*` — админ-раздел «Оплаты», `att:*` — посещение) живут в `bot/telegram/menu.py` (чистые построители, тестируются без Telegram); меню команд Telegram задаёт `BOT_COMMANDS` (все пункты главного меню как команды + `/whoami`).
 
 Жёсткие правила (подробности — в указанных разделах):
 - **aiogram импортируется только в `bot/telegram/`**; домен общается с Telegram через `Messenger` / `MembershipChecker` (`bot/core/messenger.py`), тесты используют фейки из `tests/fakes.py` — §2, §4.3, §12.
@@ -35,4 +35,5 @@ alembic revision --autogenerate -m "msg" # после изменения мод�
 - **Новые модели обязательно импортировать в `bot/registry.py`**, иначе Alembic autogenerate их не увидит — §5.
 - **Обработчики задач должны быть идемпотентными**; отмена тренировки должна гасить её pending-задачи — §7, §9.
 - **Логирование**: только stdlib `logging`, настраивается один раз в `setup_logging()` (`bot/core/logging_setup.py`); модули используют `log = logging.getLogger(__name__)` и не вызывают `basicConfig` — §10.
+- **Оплата за флагом `BILLING_ENABLED`**: проверка — в use case'ах (`billing_enabled(session)`), публикации и Telegram-слое (workflow data `billing_enabled`); сервисы `bot/billing` флага не знают; при `false` поведение бота прежнее — ARCHITECTURE.md §4.3, §10.
 - **Конкурентность при лимите мест**: при правках `ParticipationService` тест в `tests/participation/` должен оставаться зелёным; проверка лимита и запись — один SQL-оператор, переходы состояний — условный `UPDATE` + проверка rowcount — §8.
