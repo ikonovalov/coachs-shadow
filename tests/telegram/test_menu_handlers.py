@@ -175,3 +175,27 @@ async def test_unknown_menu_button_is_just_answered():
     cb = FakeCallback("menu:old")
     await common.on_menu_stale(cb)
     assert cb.answers == [(None, False)]
+
+
+async def test_start_menu_shows_payments_when_billing_is_enabled(session):
+    member = await add_user(session, 1, "member")
+    msg = FakeMessage()
+    await common.cmd_start(msg, member, billing_enabled=True)
+    assert callback_data(msg.answers[0][1]) == ["menu:schedule", "menu:my", "menu:pay", "menu:profile", "menu:close"]
+
+
+async def test_pay_button_with_billing_disabled_says_so(session):
+    user = await add_user(session, 1)
+    cb = FakeCallback("menu:pay")
+    await common.on_menu_pay(cb, session, user, fsm())  # billing_enabled=False по умолчанию
+    assert cb.answers == [("Оплата отключена", True)] and cb.message.answers == []
+
+
+async def test_pay_button_with_billing_enabled_sends_payments_and_clears_state(session):
+    user = await add_user(session, 1)
+    state = fsm()
+    await state.set_state(AdminInput.value)
+    cb = FakeCallback("menu:pay")
+    await common.on_menu_pay(cb, session, user, state, billing_enabled=True)
+    assert "💳 Оплата" in cb.message.answers[0][0]
+    assert await state.get_state() is None

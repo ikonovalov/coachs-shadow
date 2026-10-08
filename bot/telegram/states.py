@@ -42,3 +42,12 @@ class InventoryFlow(StatesGroup):
 
 class ParkInput(StatesGroup):
     line = State()  # data: kind
+
+
+class PlanForm(StatesGroup):
+    line = State()  # одна строка: Название; занятий; цена; срок
+    series = State()  # выбор серий; data: draft (dict), picked (list[int])
+
+
+class PriceInput(StatesGroup):
+    value = State()  # data: target ("type" | "series"), key (kind или id серии)

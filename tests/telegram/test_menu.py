@@ -72,3 +72,29 @@ def test_bot_commands_mirror_main_menu_and_whoami():
     ]
     for _, description in menu.BOT_COMMANDS:
         assert 0 < len(description) <= 256
+
+
+def test_billing_menu_items_appear_only_when_enabled():
+    assert ("💳 Оплата", "menu:pay") not in buttons(menu.main_menu(Role.MEMBER))
+    assert buttons(menu.main_menu(Role.MEMBER, billing=True)) == [
+        ("📅 Расписание", "menu:schedule"), ("📋 Мои записи", "menu:my"), ("💳 Оплата", "menu:pay"),
+        ("👤 Профиль", "menu:profile"), ("✖️ Закрыть", "menu:close"),
+    ]
+    assert buttons(menu.admin_menu()) == buttons(menu.ADMIN_MENU)
+    assert ("💰 Оплаты", "pay:menu") not in buttons(menu.admin_menu())
+    with_billing = buttons(menu.admin_menu(billing=True))
+    assert ("💰 Оплаты", "pay:menu") in with_billing and with_billing[-1] == ("⬅️ Главное меню", "menu:back")
+
+
+def test_bot_commands_include_payments_only_when_enabled():
+    assert menu.bot_commands(False) == menu.BOT_COMMANDS
+    assert [command for command, _ in menu.bot_commands(True)] == [
+        "start", "schedule", "my_bookings", "payments", "profile", "trainer", "admin", "whoami",
+    ]
+
+
+def test_billing_callback_data_fit_the_limit_and_do_not_collide():
+    for kb in (menu.main_menu(Role.ADMIN, billing=True), menu.admin_menu(billing=True), menu.PAY_MENU):
+        for _, data in buttons(kb):
+            assert len(data.encode()) <= 64
+    assert not menu.MENU_PAY.startswith(("join:", "decline:", "who:", "noop", "tr:", "nf:", "pk:", "ch:", "ad:", "my:", "pf:", "inv:"))

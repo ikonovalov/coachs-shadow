@@ -11,7 +11,7 @@ from bot.core.permissions import Role, require_admin
 from bot.core.settings import get_setting, set_setting, validate_setting
 from bot.schedule.service import ScheduleService
 from bot.telegram.handlers.picker import on_pick, start_picker
-from bot.telegram.menu import ADD_LEVEL_CANCEL, ADMIN_MENU, cancel_keyboard
+from bot.telegram.menu import ADD_LEVEL_CANCEL, admin_menu, cancel_keyboard
 from bot.telegram.states import AdminInput
 from bot.telegram.ui import markup, restore_form, safe_edit, take_form
 from bot.users.models import User
@@ -53,17 +53,17 @@ async def cmd_delete_level(message: Message, command: CommandObject, session: As
 
 
 @router.message(Command("admin"), F.chat.type == "private")
-async def cmd_admin(message: Message, user: User, state: FSMContext) -> None:
+async def cmd_admin(message: Message, user: User, state: FSMContext, billing_enabled: bool = False) -> None:
     require_admin(user)
     await state.clear()
-    await message.answer("Меню администратора", reply_markup=ADMIN_MENU)
+    await message.answer("Меню администратора", reply_markup=admin_menu(billing_enabled))
 
 
 @router.callback_query(F.data == "ad:menu")
-async def on_menu(cb: CallbackQuery, user: User, state: FSMContext) -> None:
+async def on_menu(cb: CallbackQuery, user: User, state: FSMContext, billing_enabled: bool = False) -> None:
     require_admin(user)
     await state.clear()
-    await safe_edit(cb.message, "Меню администратора", reply_markup=ADMIN_MENU)
+    await safe_edit(cb.message, "Меню администратора", reply_markup=admin_menu(billing_enabled))
     await cb.answer()
 
 
@@ -230,10 +230,12 @@ async def on_add_level(cb: CallbackQuery, state: FSMContext, user: User) -> None
 
 
 @router.callback_query(F.data == ADD_LEVEL_CANCEL)
-async def on_add_level_cancel(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+async def on_add_level_cancel(
+    cb: CallbackQuery, state: FSMContext, user: User, billing_enabled: bool = False
+) -> None:
     require_admin(user)
     await state.clear()
-    await safe_edit(cb.message, "Меню администратора", reply_markup=ADMIN_MENU)
+    await safe_edit(cb.message, "Меню администратора", reply_markup=admin_menu(billing_enabled))
     await cb.answer()
 
 
@@ -277,7 +279,9 @@ async def on_setting(cb: CallbackQuery, state: FSMContext, user: User) -> None:
 
 
 @router.message(AdminInput.value, F.text, ~F.text.startswith("/"), F.chat.type == "private")
-async def on_admin_input(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+async def on_admin_input(
+    message: Message, state: FSMContext, session: AsyncSession, user: User, billing_enabled: bool = False
+) -> None:
     require_admin(user)
     data = await take_form(state, AdminInput.value)  # два сообщения подряд: значение применится один раз
     if data is None:
@@ -293,7 +297,7 @@ async def on_admin_input(message: Message, state: FSMContext, session: AsyncSess
         await restore_form(state, AdminInput.value, data)  # при ошибке ввода можно повторить
         raise
     if purpose == "add_level":
-        await message.answer(f"Уровень «{level.name}» добавлен", reply_markup=ADMIN_MENU)
+        await message.answer(f"Уровень «{level.name}» добавлен", reply_markup=admin_menu(billing_enabled))
     else:
         await message.answer("Сохранено ✅")
 

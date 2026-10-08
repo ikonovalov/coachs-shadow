@@ -13,6 +13,7 @@ MENU_PROFILE = "menu:profile"
 MENU_TRAINER = "menu:trainer"
 MENU_ADMIN = "menu:admin"
 MENU_BACK = "menu:back"
+MENU_PAY = "menu:pay"
 MENU_CLOSE = "menu:close"
 BIND_PREFIX = "bind:"
 ADD_LEVEL_CANCEL = "ad:cancel"
@@ -23,6 +24,7 @@ TEXT_PROFILE = "👤 Профиль"
 TEXT_TRAINER = "🎓 Тренер"
 TEXT_ADMIN = "⚙️ Админ"
 TEXT_BACK = "⬅️ Главное меню"
+TEXT_PAY = "💳 Оплата"
 TEXT_CLOSE = "✖️ Закрыть"
 TEXT_CANCEL = "✖️ Отмена"
 
@@ -37,13 +39,21 @@ BOT_COMMANDS = [
     ("whoami", "Мой Telegram ID"),
 ]
 
-ADMIN_MENU = markup(
-    [("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins")],
-    [("🏅 Уровни", "ad:levels"), ("💬 Чаты", "ch:list")],
-    [("🚲 Парк инвентаря", "ad:park")],
-    [("🔗 Приглашение тренера", "ad:invite"), ("⚙️ Настройки", "ad:settings")],
-    [(TEXT_BACK, MENU_BACK)],
-)
+def admin_menu(billing: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [("👥 Тренеры", "ad:trainers"), ("🛡 Админы", "ad:admins")],
+        [("🏅 Уровни", "ad:levels"), ("💬 Чаты", "ch:list")],
+        [("🚲 Парк инвентаря", "ad:park")],
+    ]
+    if billing:
+        rows.append([("💰 Оплаты", "pay:menu")])
+    rows += [[("🔗 Приглашение тренера", "ad:invite"), ("⚙️ Настройки", "ad:settings")], [(TEXT_BACK, MENU_BACK)]]
+    return markup(*rows)
+
+
+ADMIN_MENU = admin_menu()
+
+
 TRAINER_MENU = markup(
     [("📋 Мои тренировки", "tr:list")],
     [("🔁 Мои серии", "tr:slist")],
@@ -56,8 +66,11 @@ TRAINER_MENU = markup(
 BACK_ROW = [(TEXT_BACK, MENU_BACK)]
 
 
-def main_menu(role: str) -> InlineKeyboardMarkup:
-    rows = [[(TEXT_SCHEDULE, MENU_SCHEDULE)], [(TEXT_MY, MENU_MY)], [(TEXT_PROFILE, MENU_PROFILE)]]
+def main_menu(role: str, billing: bool = False) -> InlineKeyboardMarkup:
+    rows = [[(TEXT_SCHEDULE, MENU_SCHEDULE)], [(TEXT_MY, MENU_MY)]]
+    if billing:
+        rows.append([(TEXT_PAY, MENU_PAY)])
+    rows.append([(TEXT_PROFILE, MENU_PROFILE)])
     if role in (Role.TRAINER, Role.ADMIN):
         rows.append([(TEXT_TRAINER, MENU_TRAINER)])
     if role == Role.ADMIN:
@@ -72,3 +85,19 @@ def levels_keyboard(levels: list[Level]) -> InlineKeyboardMarkup:
 
 def cancel_keyboard() -> InlineKeyboardMarkup:
     return markup([(TEXT_CANCEL, ADD_LEVEL_CANCEL)])
+
+
+def bot_commands(billing: bool = False) -> list[tuple[str, str]]:
+    commands = list(BOT_COMMANDS)
+    if billing:
+        index = [command for command, _ in commands].index("my_bookings") + 1
+        commands.insert(index, ("payments", "Оплата и абонементы"))
+    return commands
+
+
+PAY_MENU = markup(
+    [("🧾 Должники", "pay:debt"), ("↩️ К возврату", "pay:rf")],
+    [("🎟 Выдать абонемент", "pay:iss"), ("📑 Тарифы", "pay:pl")],
+    [("💲 Цены", "pay:pr")],
+    [("⬅️ Меню", "ad:menu")],
+)

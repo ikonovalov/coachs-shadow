@@ -2,6 +2,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.billing.views import BillingViews
 from bot.core.db import utcnow
 from bot.core.messenger import Messenger
 from bot.participation.service import JoinOutcome, ParticipationService
@@ -42,10 +43,17 @@ async def _finish(
 
 
 @router.callback_query(F.data.startswith("join:"))
-async def on_join(callback: CallbackQuery, session: AsyncSession, messenger: Messenger, user: User) -> None:
+async def on_join(
+    callback: CallbackQuery, session: AsyncSession, messenger: Messenger, user: User, billing_enabled: bool = False
+) -> None:
     training_id = _training_id(callback)
     outcome = await join_training(session, messenger, training_id, user.telegram_id, utcnow())
-    await _finish(callback, session, messenger, user, training_id, JOIN_TEXT[outcome])
+    text = JOIN_TEXT[outcome]
+    if billing_enabled and outcome == JoinOutcome.JOINED:
+        hint = await BillingViews(session).payment_hint(training_id, user.telegram_id, utcnow())
+        if hint:
+            text = fit_alert(f"{text}\n{hint}")
+    await _finish(callback, session, messenger, user, training_id, text)
 
 
 @router.callback_query(F.data.startswith("decline:"))

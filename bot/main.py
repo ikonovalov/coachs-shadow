@@ -14,9 +14,10 @@ from bot.bootstrap import bootstrap
 from bot.jobs.runner import scheduler_loop
 from bot.telegram.errors import on_domain_error
 from bot.telegram.handlers import (
-    admin, binding, chats, common, inventory, my, park, participation, picker, profile, schedule, trainer, trainer_forms,
+    admin, billing_off, binding, chats, common, inventory, my, park, participation, payments, picker, profile, schedule,
+    trainer, trainer_forms,
 )
-from bot.telegram.menu import BOT_COMMANDS
+from bot.telegram.menu import bot_commands
 from bot.telegram.membership import AiogramMembership
 from bot.telegram.messenger import AiogramMessenger
 from bot.telegram.middleware import AccessMiddleware, DbSessionMiddleware, clear_state_on_command
@@ -32,7 +33,7 @@ async def main() -> None:
     await bootstrap(session_factory, cfg, utcnow())
 
     bot = Bot(cfg.bot_token)
-    await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in BOT_COMMANDS])
+    await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in bot_commands(cfg.billing_enabled)])
     messenger = AiogramMessenger(bot)
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.outer_middleware(DbSessionMiddleware(session_factory, cfg.admin_ids))
@@ -45,16 +46,18 @@ async def main() -> None:
     # trainer_forms first: it handles "tr:new:*", which the trainer router's "tr:" catch-all would swallow;
     # inventory before trainer for the same reason ("tr:inv:*"); park before admin ("ad:park", "ad:pk*" vs "ad:").
     # Each router ends with a stateless catch-all for its own "<prefix>:" callbacks (expired buttons).
+    # оплата — одна фича: при выключенном флаге вместо её роутеров стоит заглушка «Оплата отключена»
+    billing_routers = [payments.router] if cfg.billing_enabled else [billing_off.router]
     dp.include_routers(
         trainer_forms.router, common.router, binding.router, picker.router, park.router, admin.router,
-        chats.router, profile.router, my.router, inventory.router, schedule.router, trainer.router,
-        participation.router,
+        chats.router, profile.router, my.router, inventory.router, *billing_routers, schedule.router,
+        trainer.router, participation.router,
     )
 
     scheduler = asyncio.create_task(scheduler_loop(session_factory, messenger))
     log.info("bot started: admins=%d, timezone=%s", len(cfg.admin_ids), cfg.club_timezone)
     try:
-        await dp.start_polling(bot, messenger=messenger, admin_ids=cfg.admin_ids)
+        await dp.start_polling(bot, messenger=messenger, admin_ids=cfg.admin_ids, billing_enabled=cfg.billing_enabled)
     finally:
         log.info("bot stopping")
         scheduler.cancel()
