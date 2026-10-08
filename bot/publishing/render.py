@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from bot.core.messenger import Button, Keyboard
+from bot.core.money import format_money, format_range, surcharge_estimate
 
 KIND_NAMES = {"road": "Шоссе", "track": "Трек", "coffeeride": "Коферайд", "endurance": "Длительная"}
 WEEKDAYS = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
@@ -24,6 +25,8 @@ class CardData:
     description: str
     published: bool
     opens_at: datetime
+    single_price: int | None = None
+    surcharge_per_person: int | None = None
 
 
 def format_when(starts_at: datetime, duration_min: int, tz: ZoneInfo) -> str:
@@ -45,6 +48,11 @@ def render_card(card: CardData, tz: ZoneInfo) -> tuple[str, Keyboard]:
     if card.published:
         going = f"{card.going_count}/{card.capacity}" if card.capacity else str(card.going_count)
         lines.append(f"✅ Идут: {going}")
+    if card.single_price:
+        lines.append(f"💰 Разовое занятие: {format_money(card.single_price)}")
+    if card.surcharge_per_person:
+        low, high = surcharge_estimate(card.surcharge_per_person, card.going_count, card.capacity)
+        lines.append(f"➕ Доплата ≈ {format_range(low, high)} (зависит от числа участников)")
     if card.description:
         lines.append("")
         lines.append(card.description)

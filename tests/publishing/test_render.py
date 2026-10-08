@@ -68,3 +68,19 @@ def test_fit_alert_trims_long_text_and_keeps_short():
     long = render_participants([f"Участник {i}" for i in range(60)], [])
     trimmed = fit_alert(long)
     assert len(trimmed) <= 190 and trimmed.endswith("…")
+
+
+def test_card_shows_price_and_surcharge_estimate():
+    text, _ = render_card(card(single_price=70000, surcharge_per_person=50000, capacity=4, going_count=2), MSK)
+    assert "💰 Разовое занятие: 700 ₽" in text
+    assert "➕ Доплата ≈ 625–750 ₽ (зависит от числа участников)" in text
+
+
+def test_card_without_prices_has_no_money_lines():
+    text, _ = render_card(card(), MSK)
+    assert "💰" not in text and "➕" not in text
+
+
+def test_zero_prices_are_hidden():
+    text, _ = render_card(card(single_price=0, surcharge_per_person=0), MSK)
+    assert "💰" not in text and "➕" not in text

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.billing.queries import resolve_prices
 from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.core.permissions import Role, can_create_for_levels, can_manage_training, require_admin
 from bot.core.settings import get_setting
@@ -490,6 +491,7 @@ class ScheduleService:
                 )
             )
         }
+        prices = await resolve_prices(self.session, series)
         created: list[Training] = []
         for starts_at in starts:
             if starts_at.astimezone(tz).date() in taken_dates:
@@ -503,6 +505,8 @@ class ScheduleService:
                 kind=series.kind,
                 description=series.description,
                 capacity=series.capacity,
+                single_price=prices.single_price,
+                surcharge_per_person=prices.surcharge_per_person,
                 status=TrainingStatus.SCHEDULED,
                 levels=list(series.levels),
             )
