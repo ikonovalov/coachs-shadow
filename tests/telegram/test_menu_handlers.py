@@ -121,7 +121,7 @@ async def test_schedule_button_with_no_trainings_says_so(session, messenger):
     assert await state.get_state() is None
 
 
-async def test_schedule_with_trainings_ends_with_back_button(session, messenger, monkeypatch):
+async def test_schedule_with_trainings_sends_only_cards(session, messenger, monkeypatch):
     monkeypatch.setattr("bot.telegram.handlers.schedule.utcnow", lambda: NOW)
     trainer = await add_user(session, 2, "trainer")
     level = await add_level(session)
@@ -130,9 +130,8 @@ async def test_schedule_with_trainings_ends_with_back_button(session, messenger,
     )
     cb = FakeCallback("menu:schedule")
     await common.on_menu_schedule(cb, session, messenger, fsm())
-    assert len(cb.message.answers) == 2
+    assert len(cb.message.answers) == 1  # только карточка, без завершающего сообщения
     assert "menu:back" not in callback_data(cb.message.answers[0][1])  # карточка — общая с постами в чатах
-    assert callback_data(cb.message.answers[-1][1]) == ["menu:back"]
 
 
 async def test_my_button_sends_my_records_and_clears_state(session):

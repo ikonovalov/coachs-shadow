@@ -24,8 +24,6 @@ async def send_schedule(message: Message, session: AsyncSession, messenger: Mess
     for training in trainings:
         text, keyboard = await publisher.render(training)
         await message.answer(text, reply_markup=to_markup(keyboard))
-    # у карточек клавиатура общая с постами в чатах, поэтому выход — отдельным сообщением в конце
-    await message.answer("Это все ближайшие тренировки.", reply_markup=markup(BACK_ROW))
 
 
 @router.message(Command("schedule"), F.chat.type == "private")
