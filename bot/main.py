@@ -14,7 +14,7 @@ from bot.bootstrap import bootstrap
 from bot.jobs.runner import scheduler_loop
 from bot.telegram.errors import on_domain_error
 from bot.telegram.handlers import (
-    admin, billing_off, binding, chats, common, inventory, my, park, participation, pay_admin, payments, picker, profile, schedule,
+    admin, attendance, billing_off, binding, chats, common, inventory, my, park, participation, pay_admin, payments, picker, profile, schedule,
     trainer, trainer_forms,
 )
 from bot.telegram.menu import bot_commands
@@ -47,7 +47,7 @@ async def main() -> None:
     # inventory before trainer for the same reason ("tr:inv:*"); park before admin ("ad:park", "ad:pk*" vs "ad:").
     # Each router ends with a stateless catch-all for its own "<prefix>:" callbacks (expired buttons).
     # оплата — одна фича: при выключенном флаге вместо её роутеров стоит заглушка «Оплата отключена»
-    billing_routers = [payments.router, pay_admin.router] if cfg.billing_enabled else [billing_off.router]
+    billing_routers = [payments.router, pay_admin.router, attendance.router] if cfg.billing_enabled else [billing_off.router]
     dp.include_routers(
         trainer_forms.router, common.router, binding.router, picker.router, park.router, admin.router,
         chats.router, profile.router, my.router, inventory.router, *billing_routers, schedule.router,
