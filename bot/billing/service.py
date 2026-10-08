@@ -18,7 +18,7 @@ from bot.billing.models import (
 )
 from bot.billing.pricing import subscription_expiry
 from bot.billing.queries import Prices, candidate_subscription_ids, resolve_prices
-from bot.core.errors import NotFound
+from bot.core.errors import InvalidAction, NotFound
 from bot.core.money import surcharge_share
 from bot.core.permissions import require_admin
 from bot.core.settings import get_setting
@@ -186,3 +186,73 @@ class BillingService:
             await self.session.rollback()
             return []
         return created
+
+    # ---- оплата и возвраты (только админ) ----
+
+    async def mark_charge_paid(self, actor: User, charge_id: int, now: datetime) -> Charge:
+        require_admin(actor)
+        result = await self.session.execute(
+            update(Charge)
+            .where(Charge.id == charge_id, Charge.status == ChargeStatus.PENDING)
+            .values(status=ChargeStatus.PAID, paid_at=now, paid_by=actor.telegram_id)
+            .execution_options(synchronize_session="fetch")
+        )
+        await self.session.commit()
+        if result.rowcount != 1:
+            raise InvalidAction("Начисление уже оплачено или отменено")
+        charge = await self.session.get(Charge, charge_id)
+        await self.session.refresh(charge)  # bulk UPDATE не заполняет ещё не загруженные поля (paid_at, refunded_at…)
+        return charge
+
+    async def mark_subscription_paid(self, actor: User, subscription_id: int, now: datetime) -> Subscription:
+        require_admin(actor)
+        result = await self.session.execute(
+            update(Subscription)
+            .where(Subscription.id == subscription_id, Subscription.paid_at.is_(None))
+            .values(paid_at=now, paid_by=actor.telegram_id)
+            .execution_options(synchronize_session="fetch")
+        )
+        await self.session.commit()
+        if result.rowcount != 1:
+            raise InvalidAction("Абонемент уже оплачен")
+        sub = await self.session.get(Subscription, subscription_id)
+        await self.session.refresh(sub)  # bulk UPDATE не заполняет ещё не загруженные поля (paid_at, refunded_at…)
+        return sub
+
+    async def mark_user_paid(self, actor: User, user_id: int, now: datetime) -> int:
+        """Закрывает все долги ученика: начисления pending и неоплаченные абонементы."""
+        require_admin(actor)
+        charges = await self.session.execute(
+            update(Charge)
+            .where(Charge.user_id == user_id, Charge.status == ChargeStatus.PENDING)
+            .values(status=ChargeStatus.PAID, paid_at=now, paid_by=actor.telegram_id)
+            .execution_options(synchronize_session="fetch")
+        )
+        subscriptions = await self.session.execute(
+            update(Subscription)
+            .where(Subscription.user_id == user_id, Subscription.paid_at.is_(None))
+            .values(paid_at=now, paid_by=actor.telegram_id)
+            .execution_options(synchronize_session="fetch")
+        )
+        await self.session.commit()
+        return charges.rowcount + subscriptions.rowcount
+
+    async def mark_refunded(self, actor: User, charge_id: int, now: datetime) -> Charge:
+        require_admin(actor)
+        result = await self.session.execute(
+            update(Charge)
+            .where(
+                Charge.id == charge_id,
+                Charge.status == ChargeStatus.VOID,
+                Charge.refund_due.is_(True),
+                Charge.refunded_at.is_(None),
+            )
+            .values(refunded_at=now)
+            .execution_options(synchronize_session="fetch")
+        )
+        await self.session.commit()
+        if result.rowcount != 1:
+            raise InvalidAction("Возврат уже проведён или не требуется")
+        charge = await self.session.get(Charge, charge_id)
+        await self.session.refresh(charge)  # bulk UPDATE не заполняет ещё не загруженные поля (paid_at, refunded_at…)
+        return charge
