@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
@@ -18,16 +19,28 @@ from bot.billing.models import (
 )
 from bot.billing.pricing import subscription_expiry
 from bot.billing.queries import Prices, candidate_subscription_ids, resolve_prices
-from bot.core.errors import InvalidAction, NotFound
+from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.core.money import surcharge_share
-from bot.core.permissions import require_admin
+from bot.core.permissions import Role, require_admin
 from bot.core.settings import get_setting
 from bot.inventory.models import InventoryOrder, OrderStatus
 from bot.participation.models import Participation, ParticipationStatus
 from bot.schedule.models import Training, TrainingSeries, TrainingStatus
+from bot.schedule.queries import can_manage
 from bot.users.models import User
 
 log = logging.getLogger(__name__)
+
+ATTENDANCE_WINDOW = timedelta(hours=72)
+
+
+@dataclass
+class AttendanceResult:
+    changed: bool = False
+    returned_to: str | None = None  # название абонемента, на который вернули занятие
+    refund_due: bool = False  # было оплачено: деньги нужно вернуть
+    pending_changes: list[tuple[int, int]] = field(default_factory=list)  # (user_id, новая сумма доплаты)
+    paid_diffs: list[tuple[int, int, int]] = field(default_factory=list)  # (user_id, оплачено, теперь должно быть)
 
 
 class BillingService:
@@ -256,3 +269,116 @@ class BillingService:
         charge = await self.session.get(Charge, charge_id)
         await self.session.refresh(charge)  # bulk UPDATE не заполняет ещё не загруженные поля (paid_at, refunded_at…)
         return charge
+
+    # ---- посещение ----
+
+    async def set_attendance(
+        self, actor: User, training_id: int, user_id: int, present: bool, now: datetime
+    ) -> AttendanceResult:
+        training = await self.session.get(Training, training_id)
+        if training is None:
+            raise NotFound("Тренировка не найдена")
+        if training.status != TrainingStatus.DONE:
+            raise InvalidAction("Посещение можно отмечать после начала тренировки")
+        if not await can_manage(self.session, actor, training):
+            raise PermissionDenied("Нет прав на эту тренировку")
+        if actor.role != Role.ADMIN and now > training.ends_at + ATTENDANCE_WINDOW:
+            raise InvalidAction("Прошло больше 72 часов: отметку может изменить только администратор")
+        if await self.session.get(User, user_id) is None:
+            raise NotFound("Пользователь не найден")
+        if (user_id in await self.attendee_ids(training_id)) == present:
+            return AttendanceResult()
+        mark = await self.session.get(Attendance, (training_id, user_id))
+        if mark is None:
+            self.session.add(
+                Attendance(training_id=training_id, user_id=user_id, present=present, marked_by=actor.telegram_id, marked_at=now)
+            )
+        else:
+            mark.present, mark.marked_by, mark.marked_at = present, actor.telegram_id, now
+        await self.session.flush()
+        result = AttendanceResult(changed=True)
+        if present:
+            await self._reinstate(training, user_id, now)
+        else:
+            await self._void_charges(training_id, user_id, result)
+        await self._recompute_surcharge(training, result)
+        await self.session.commit()
+        log.info("attendance training=%s user=%s present=%s by=%s", training_id, user_id, present, actor.telegram_id)
+        return result
+
+    async def _cond_update(self, charge_id: int, from_status: str, **values) -> bool:
+        result = await self.session.execute(
+            update(Charge)
+            .where(Charge.id == charge_id, Charge.status == from_status)
+            .values(**values)
+            .execution_options(synchronize_session="fetch")
+        )
+        return result.rowcount == 1
+
+    async def _void_charges(self, training_id: int, user_id: int, result: AttendanceResult) -> None:
+        charges = await self.session.scalars(
+            select(Charge).where(
+                Charge.training_id == training_id, Charge.user_id == user_id, Charge.status != ChargeStatus.VOID
+            )
+        )
+        for charge in list(charges):
+            if await self._cond_update(charge.id, ChargeStatus.PENDING, status=ChargeStatus.VOID):
+                continue
+            if await self._cond_update(charge.id, ChargeStatus.PAID, status=ChargeStatus.VOID, refund_due=True):
+                result.refund_due = True
+                continue
+            if await self._cond_update(charge.id, ChargeStatus.COVERED, status=ChargeStatus.VOID):
+                returned = await self.session.execute(
+                    update(Subscription)
+                    .where(Subscription.id == charge.subscription_id, Subscription.sessions_left < Subscription.sessions_total)
+                    .values(sessions_left=Subscription.sessions_left + 1)
+                    .execution_options(synchronize_session="fetch")
+                )
+                if returned.rowcount == 1:
+                    result.returned_to = (await self.session.get(Subscription, charge.subscription_id)).name
+
+    async def _reinstate(self, training: Training, user_id: int, now: datetime) -> None:
+        """«Пришёл» после «не пришёл» или без записи: оплаченное восстанавливается, остальное начисляется заново."""
+        voided = await self.session.scalars(
+            select(Charge).where(
+                Charge.training_id == training.id, Charge.user_id == user_id, Charge.status == ChargeStatus.VOID
+            )
+        )
+        for charge in list(voided):
+            if charge.refund_due and charge.refunded_at is None:  # деньги ещё у клуба
+                charge.status, charge.refund_due = ChargeStatus.PAID, False
+            elif charge.refund_due:  # деньги уже вернули: ученик снова должен
+                charge.status, charge.refund_due = ChargeStatus.PENDING, False
+                charge.refunded_at = charge.paid_at = charge.paid_by = None
+            else:
+                await self.session.delete(charge)  # будет создано заново (и заново спишет единицу абонемента)
+        await self.session.flush()
+        prices = await self._prices(training)
+        attendees = await self.attendee_ids(training.id)
+        share = surcharge_share(prices.surcharge_per_person, len(attendees)) if prices.surcharge_per_person else None
+        await self._charge_participant(training, user_id, prices, share, now, commit=False)
+
+    async def _recompute_surcharge(self, training: Training, result: AttendanceResult) -> None:
+        tariff = (await self._prices(training)).surcharge_per_person
+        attendees = await self.attendee_ids(training.id)
+        if not tariff or not attendees:
+            return
+        share = surcharge_share(tariff, len(attendees))
+        rows = await self.session.scalars(
+            select(Charge)
+            .where(
+                Charge.training_id == training.id,
+                Charge.kind == ChargeKind.SURCHARGE,
+                Charge.user_id.in_(attendees),
+                Charge.status.in_([ChargeStatus.PENDING, ChargeStatus.PAID]),
+            )
+            .order_by(Charge.user_id)
+        )
+        for charge in list(rows):
+            if charge.amount == share:
+                continue
+            if charge.status == ChargeStatus.PENDING:
+                charge.amount = share
+                result.pending_changes.append((charge.user_id, share))
+            else:
+                result.paid_diffs.append((charge.user_id, charge.amount, share))
