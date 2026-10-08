@@ -72,6 +72,8 @@ class TrainingSeries(Base):
     start_time: Mapped[time] = mapped_column(Time)  # local club time
     end_date: Mapped[date | None] = mapped_column(Date)
     duration_min: Mapped[int] = mapped_column(Integer)
+    single_price: Mapped[int | None] = mapped_column(Integer)  # копейки; None — взять из PriceRule по kind
+    surcharge_per_person: Mapped[int | None] = mapped_column(Integer)  # None — из PriceRule; 0 — без доплаты
     levels: Mapped[list[Level]] = relationship(secondary=series_level, lazy="selectin")
 
 
@@ -99,6 +101,8 @@ class Training(Base):
     kind: Mapped[str] = mapped_column(String(16))
     description: Mapped[str] = mapped_column(Text, default="")
     capacity: Mapped[int | None] = mapped_column(Integer)
+    single_price: Mapped[int | None] = mapped_column(Integer)  # снимок цены на момент создания
+    surcharge_per_person: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(16), default=TrainingStatus.SCHEDULED, index=True)
     published_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     cancel_reason: Mapped[str | None] = mapped_column(String(16))

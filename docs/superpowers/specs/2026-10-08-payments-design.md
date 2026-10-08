@@ -39,16 +39,17 @@
 - `PriceRule(kind PK, single_price, surcharge_per_person)`: цены по умолчанию для типа тренировки. `surcharge_per_person = NULL` значит доплаты нет.
 - `TrainingSeries`: новые необязательные поля `single_price`, `surcharge_per_person`. Пусто значит брать из `PriceRule` по `kind`.
 - `Training`: поля `single_price`, `surcharge_per_person` копируются при создании тренировки (разрешённые значения серии или типа). Правка цен не меняет созданные тренировки.
-- `SubscriptionPlan(id, name, sessions, price, valid_days NULL = бессрочный, active)`; `valid_days` по умолчанию «1 календарный месяц» задаётся при выдаче (см. ниже).
+- `SubscriptionPlan(id, name, sessions, price, valid_months NULL = бессрочный)`; при вводе срок по умолчанию 1 месяц.
 - `SubscriptionPlanSeries(plan_id, series_id)`.
-- `Subscription(id, user_id, plan_id, sessions_total, sessions_left, starts_at, expires_at NULL, price, paid_at NULL, issued_by, created_at)`.
+- `Subscription(id, user_id, name, sessions_total, sessions_left, starts_at, expires_at NULL, price, paid_at NULL, paid_by, issued_by, created_at)`.
 - `SubscriptionSeries(subscription_id, series_id)`: набор серий, скопированный при выдаче. Правка тарифа выданные абонементы не меняет.
-- `Charge(id, user_id, training_id, kind, amount, status, subscription_id NULL, paid_at, paid_by, refund_due, refunded_at, created_at)`.
+- `Charge(id, user_id, training_id, kind, ref_id, amount, status, subscription_id NULL, paid_at, paid_by, refund_due, refunded_at, created_at)`.
   - `kind`: `session` / `surcharge` / `inventory`.
   - `status`: `pending` / `covered` / `paid` / `void`.
-  - Уникальность `(training_id, user_id, kind)` для `session` и `surcharge`; для `inventory` ссылка на заказ.
+  - Уникальность `(training_id, user_id, kind, ref_id)`: `ref_id = 0` для `session` и `surcharge`, id заказа для `inventory`.
+- `Attendance(training_id, user_id, present, marked_by, marked_at)`: явные отметки посещения; нет строки — пришёл тот, кто записался.
 
-Срок «1 календарный месяц» считается от даты выдачи в `club_timezone`: до той же даты следующего месяца (если такой даты нет, последний день месяца), конец дня, затем в UTC. Для остальных значений `valid_days` срок = `starts_at + valid_days`.
+Срок «N календарных месяцев» считается от даты выдачи в `club_timezone`: та же дата через N месяцев (если такой даты нет, последний день месяца), конец дня, затем в UTC.
 
 Долг ученика = сумма `Charge` в статусе `pending`. Остаток абонемента хранится в `Subscription.sessions_left`.
 
