@@ -18,7 +18,7 @@ from bot.billing.models import (
     SubscriptionSeries,
 )
 from bot.billing.pricing import subscription_expiry
-from bot.billing.queries import Prices, candidate_subscription_ids, resolve_prices
+from bot.billing.queries import Prices, candidate_subscription_ids, effective_prices
 from bot.core.errors import InvalidAction, NotFound, PermissionDenied
 from bot.core.money import surcharge_share
 from bot.core.permissions import Role, require_admin
@@ -122,20 +122,14 @@ class BillingService:
         share = surcharge_share(prices.surcharge_per_person, len(attendees)) if prices.surcharge_per_person else None
         created: list[Charge] = []
         for user_id in attendees:
+            # откат при конфликте уникального ключа сбрасывает все объекты сессии, поэтому тренировку читаем заново
+            training = await self.session.get(Training, training_id)
             created += await self._charge_participant(training, user_id, prices, share, now)
         log.info("charged training %s: %d new charge(s)", training_id, len(created))
         return created
 
     async def _prices(self, training: Training) -> Prices:
-        """Снимок цен тренировки; отсутствующие поля берутся из серии/типа на текущий момент."""
-        if training.single_price is not None and training.surcharge_per_person is not None:
-            return Prices(training.single_price, training.surcharge_per_person)
-        series = await self.session.get(TrainingSeries, training.series_id)
-        resolved = await resolve_prices(self.session, series)
-        return Prices(
-            training.single_price if training.single_price is not None else resolved.single_price,
-            training.surcharge_per_person if training.surcharge_per_person is not None else resolved.surcharge_per_person,
-        )
+        return await effective_prices(self.session, training)
 
     async def _take_unit(self, training: Training, user_id: int) -> int | None:
         for sub_id in await candidate_subscription_ids(self.session, training, user_id):

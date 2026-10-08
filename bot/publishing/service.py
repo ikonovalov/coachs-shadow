@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.billing.queries import Prices, effective_prices
 from bot.core.messenger import ChatUnavailable, Keyboard, Messenger
 from bot.core.permissions import Role
 from bot.core.settings import billing_enabled, get_setting
@@ -37,7 +38,7 @@ class PublishService:
             .where(Participation.training_id == training.id, Participation.status == ParticipationStatus.GOING)
         )
         publish_h = int(await get_setting(self.session, "publish_window_h"))
-        billing = await billing_enabled(self.session)
+        prices = await effective_prices(self.session, training) if await billing_enabled(self.session) else Prices()
         return CardData(
             training_id=training.id,
             status=training.status,
@@ -52,8 +53,8 @@ class PublishService:
             description=training.description,
             published=training.published_at is not None if published is None else published,
             opens_at=training.starts_at - timedelta(hours=publish_h),
-            single_price=training.single_price if billing else None,
-            surcharge_per_person=training.surcharge_per_person if billing else None,
+            single_price=prices.single_price,
+            surcharge_per_person=prices.surcharge_per_person,
         )
 
     async def render(self, training: Training, published: bool | None = None) -> tuple[str, Keyboard]:

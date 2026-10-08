@@ -27,17 +27,18 @@ async def run_due_jobs(
             job = await session.get(ScheduledJob, job_id)
             if job is None or job.done_at is not None:
                 continue
+            kind, training_id = job.kind, job.training_id  # обработчик может откатить сессию и сбросить объект задачи
             try:
                 await handle_job(session, messenger, job, now)
                 job.done_at = now
                 await session.flush()
-                if job.kind == JobKind.GENERATE:
+                if kind == JobKind.GENERATE:
                     await ensure_generate_job(session, now + timedelta(hours=24))
                 await session.commit()
                 completed += 1
-                log.info("job %s (%s) done, training=%s", job_id, job.kind, job.training_id)
+                log.info("job %s (%s) done, training=%s", job_id, kind, training_id)
             except Exception:
-                log.exception("job %s (%s) failed; will retry", job_id, job.kind)
+                log.exception("job %s (%s) failed; will retry", job_id, kind)
                 await session.rollback()
     return completed
 

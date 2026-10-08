@@ -5,7 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.billing.models import Attendance, Charge, ChargeStatus, Subscription
-from bot.billing.queries import Prices, candidate_subscription_ids, resolve_prices
+from bot.billing.queries import candidate_subscription_ids, effective_prices
 from bot.core.money import format_money, format_range, surcharge_estimate
 from bot.participation.models import Participation, ParticipationStatus
 from bot.schedule.models import Training, TrainingSeries, TrainingStatus
@@ -138,12 +138,7 @@ class BillingViews:
         training = await self.session.get(Training, training_id)
         if training is None or training.status != TrainingStatus.SCHEDULED:
             return None
-        series = await self.session.get(TrainingSeries, training.series_id)
-        resolved = await resolve_prices(self.session, series)
-        prices = Prices(
-            training.single_price if training.single_price is not None else resolved.single_price,
-            training.surcharge_per_person if training.surcharge_per_person is not None else resolved.surcharge_per_person,
-        )
+        prices = await effective_prices(self.session, training)
         lines: list[str] = []
         candidates = await candidate_subscription_ids(self.session, training, user_id)
         if candidates:

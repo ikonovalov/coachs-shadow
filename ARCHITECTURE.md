@@ -290,7 +290,8 @@ erDiagram
 - `price_rules(kind, single_price, surcharge_per_person)` — цены по типу тренировки; `training_series` и `trainings` получили
   `single_price` и `surcharge_per_person` (`NULL` — не задано; `0` у доплаты — явно без доплаты). Серия берёт цену из своего
   поля, иначе из `price_rules` (`resolve_prices`); тренировка копирует результат при создании (снимок), а недостающее поле
-  при закрытии берётся из серии/типа на тот момент.
+  в карточке, подсказке и при закрытии берётся из серии/типа на текущий момент (единый резолвер
+  `effective_prices` в `bot/billing/queries.py`: ученик видит в посте ту же сумму, которую ему начислят).
 - `subscription_plans` + `subscription_plan_series` — тарифы на набор серий (`valid_months` `NULL` — бессрочный).
   `subscriptions` + `subscription_series` — выданные абонементы: название, цена и набор серий скопированы при выдаче
   (удаление тарифа их не меняет), остаток — `sessions_left`.

@@ -24,6 +24,19 @@ async def resolve_prices(session: AsyncSession, series: TrainingSeries) -> Price
     )
 
 
+async def effective_prices(session: AsyncSession, training: Training) -> Prices:
+    """Цены тренировки: снимок, а недостающее поле — из серии/типа на текущий момент. Один источник правды для
+    карточки, подсказки и начисления, чтобы ученик видел в посте ту же сумму, которую ему начислят."""
+    if training.single_price is not None and training.surcharge_per_person is not None:
+        return Prices(training.single_price, training.surcharge_per_person)
+    series = await session.get(TrainingSeries, training.series_id)
+    resolved = await resolve_prices(session, series)
+    return Prices(
+        training.single_price if training.single_price is not None else resolved.single_price,
+        training.surcharge_per_person if training.surcharge_per_person is not None else resolved.surcharge_per_person,
+    )
+
+
 async def candidate_subscription_ids(session: AsyncSession, training: Training, user_id: int) -> list[int]:
     """Абонементы ученика, которыми можно закрыть тренировку: серия в наборе, есть остаток, выдан до старта,
     срок не истёк к старту. Сначала истекающие раньше, бессрочные последними."""

@@ -43,13 +43,35 @@ async def test_close_training_closes_charges_and_notifies(session, messenger):
     assert messenger.notification_keyboards[-1][1][0][0].data == f"att:o:{t.id}"
 
 
-async def test_close_training_twice_does_not_renotify_or_double_charge(session, messenger):
+async def test_close_training_twice_does_not_renotify_users_or_double_charge(session, messenger):
     t = await scheduled_training(session, going=[1])
     await close_training(session, messenger, t.id, NOW)
-    sent = len(messenger.notifications)
+    user_notes = [text for uid, text in messenger.notifications if uid == 1]
     await close_training(session, messenger, t.id, NOW)
-    assert len(messenger.notifications) == sent
+    assert [text for uid, text in messenger.notifications if uid == 1] == user_notes
     assert len(list(await session.scalars(select(Charge)))) == 1
+
+
+async def test_retry_after_failed_close_still_charges_and_prompts_the_trainer(session, messenger, monkeypatch):
+    from bot.publishing.service import PublishService
+
+    t = await scheduled_training(session, going=[1])
+    original = PublishService.refresh_posts
+    calls = []
+
+    async def flaky(self, training_id):
+        calls.append(training_id)
+        if len(calls) == 1:
+            raise RuntimeError("telegram is down")  # закрытие уже закоммитило status=done
+        return await original(self, training_id)
+
+    monkeypatch.setattr(PublishService, "refresh_posts", flaky)
+    with pytest.raises(RuntimeError):
+        await close_training(session, messenger, t.id, NOW)
+    assert (await session.get(Training, t.id)).status == TrainingStatus.DONE
+    await close_training(session, messenger, t.id, NOW)  # повтор задачи
+    assert any(uid == 1 and "К оплате: 700 ₽" in text for uid, text in messenger.notifications)
+    assert any(uid == 10 and "Записалось 1" in text for uid, text in messenger.notifications)
 
 
 async def test_close_job_runs_billing(session_factory, session, messenger):

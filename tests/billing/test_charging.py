@@ -202,3 +202,19 @@ async def test_last_unit_goes_to_exactly_one_of_two_concurrent_closes(session, s
     assert statuses == [ChargeStatus.COVERED, ChargeStatus.PENDING]
     await session.refresh(sub)  # списания шли в других сессиях: identity map этой сессии устарела
     assert sub.sessions_left == 0
+
+
+async def test_parallel_closes_with_several_participants_do_not_crash_or_double_charge(session, session_factory):
+    t = await done_training(session, going=[1, 2, 3, 4])
+    subs = [await give_subscription(session, uid, [t.series_id], sessions=5) for uid in (1, 2, 3, 4)]
+
+    async def close():
+        async with session_factory() as s:
+            return await BillingService(s).charge_training(t.id, NOW)
+
+    results = await asyncio.gather(*(close() for _ in range(3)), return_exceptions=True)
+    assert [r for r in results if isinstance(r, Exception)] == []
+    assert len(list(await session.scalars(select(Charge)))) == 4
+    for sub in subs:
+        await session.refresh(sub)
+        assert sub.sessions_left == 4  # каждому списано ровно одно занятие

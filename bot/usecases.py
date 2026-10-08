@@ -197,8 +197,6 @@ async def _admin_ids(session: AsyncSession) -> list[int]:
 async def close_training(session: AsyncSession, messenger: Messenger, training_id: int, now: datetime) -> None:
     """Закрытие тренировки: статус, пост, начисления и уведомления. Идемпотентно: повтор после сбоя
     не создаёт начислений и не уведомляет повторно о уже созданных."""
-    before = await session.get(Training, training_id)
-    was_done = before is not None and before.status == TrainingStatus.DONE
     await PublishService(session, messenger).close(training_id, now)
     if not await billing_enabled(session):
         return  # оплата отключена: тренировка закрыта как раньше, без начислений и сообщений
@@ -218,7 +216,7 @@ async def close_training(session: AsyncSession, messenger: Messenger, training_i
     for user_id, charges in by_user.items():
         await _notify_quietly(messenger, user_id, render_new_charges(title, charges, sub_names))
     going = await ParticipationService(session).going_count(training_id)
-    if going and not was_done:  # сообщение тренеру — только при первом закрытии
+    if going:  # в конце успешного закрытия: задача завершается один раз, а при сбое раньше повтор дойдёт досюда
         await _notify_quietly(
             messenger, training.trainer_id,
             f"🏁 Началась тренировка: {title}. Записалось {going}. После занятия отметьте, кто пришёл.",
