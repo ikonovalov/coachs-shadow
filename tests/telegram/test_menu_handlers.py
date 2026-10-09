@@ -116,7 +116,7 @@ async def test_schedule_button_with_no_trainings_says_so(session, messenger):
     await common.on_menu_schedule(cb, session, messenger, state)
     (text, markup), = cb.message.answers
     assert text == "Ближайших тренировок нет"
-    assert callback_data(markup) == ["menu:back"]
+    assert markup is None
     assert cb.answers == [(None, False)]
     assert await state.get_state() is None
 

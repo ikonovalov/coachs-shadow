@@ -8,8 +8,6 @@ from bot.core.messenger import Messenger
 from bot.publishing.service import PublishService
 from bot.schedule.service import ScheduleService
 from bot.telegram.keyboards import to_markup
-from bot.telegram.menu import BACK_ROW
-from bot.telegram.ui import markup
 
 router = Router()
 
@@ -18,7 +16,7 @@ async def send_schedule(message: Message, session: AsyncSession, messenger: Mess
     """Общий показ расписания: его зовут и /schedule, и кнопка «📅 Расписание»."""
     trainings = await ScheduleService(session).upcoming(utcnow())
     if not trainings:
-        await message.answer("Ближайших тренировок нет", reply_markup=markup(BACK_ROW))
+        await message.answer("Ближайших тренировок нет")
         return
     publisher = PublishService(session, messenger)
     for training in trainings:
