@@ -84,6 +84,8 @@ async def set_item_active(
 async def join_training(
     session: AsyncSession, messenger: Messenger, training_id: int, user_id: int, now: datetime
 ) -> JoinOutcome:
+    """Запись «Пойду»: при успехе обновляет посты тренировки. Возвращает исход (JOINED / ALREADY / FULL);
+    закрытую, отменённую или начавшуюся тренировку отклоняет сервис."""
     outcome = await ParticipationService(session).join(training_id, user_id, now)
     log.info("join training=%s user=%s -> %s", training_id, user_id, outcome)
     if outcome == JoinOutcome.JOINED:
@@ -94,6 +96,8 @@ async def join_training(
 async def decline_training(
     session: AsyncSession, messenger: Messenger, training_id: int, user_id: int, now: datetime
 ) -> str | None:
+    """«Не пойду»: если участник был записан, отменяет его заказы инвентаря и обновляет посты.
+    Возвращает прежний статус записи или None."""
     previous = await ParticipationService(session).decline(training_id, user_id, now)
     log.info("decline training=%s user=%s (was %s)", training_id, user_id, previous)
     if previous == ParticipationStatus.GOING:
@@ -105,6 +109,8 @@ async def decline_training(
 async def cancel_trainings(
     session: AsyncSession, messenger: Messenger, actor: User, training_ids: list[int], now: datetime
 ) -> list[Training]:
+    """Отмена тренировок (права и атомарность — в сервисе): отменяет заказы инвентаря, обновляет посты
+    и уведомляет записанных."""
     cancelled = await ScheduleService(session).cancel(actor, training_ids, now)
     log.info("cancelled trainings %s by user=%s", [t.id for t in cancelled], actor.telegram_id)
     publisher = PublishService(session, messenger)
@@ -118,6 +124,8 @@ async def cancel_trainings(
 async def end_series(
     session: AsyncSession, messenger: Messenger, actor: User, series_id: int, now: datetime
 ) -> list[Training]:
+    """Завершение серии: отменяет её будущие тренировки и их заказы инвентаря, обновляет посты и уведомляет записанных.
+    Права — в сервисе."""
     cancelled = await ScheduleService(session).end_series(actor, series_id, now)
     log.info("series %s ended by user=%s, cancelled trainings %s", series_id, actor.telegram_id, [t.id for t in cancelled])
     publisher = PublishService(session, messenger)
@@ -131,6 +139,8 @@ async def end_series(
 async def update_series(
     session: AsyncSession, messenger: Messenger, actor: User, series_id: int, data: SeriesInput, now: datetime
 ) -> list[ReplacedTraining]:
+    """Применяет новый шаблон серии. Для заменённых опубликованных тренировок отменяет заказы инвентаря,
+    публикует пару сразу (чтобы в уведомлении была ссылка) и уведомляет записанных."""
     replaced = await ScheduleService(session).update_series(actor, series_id, data, now)
     publisher = PublishService(session, messenger)
     inventory = InventoryService(session)
@@ -145,6 +155,7 @@ async def update_series(
 async def update_training(
     session: AsyncSession, messenger: Messenger, actor: User, training_id: int, edit: TrainingEdit, now: datetime
 ) -> Training:
+    """Правка места, описания и лимита одной тренировки с обновлением её постов. Права и проверки — в сервисе."""
     training = await ScheduleService(session).update_training(actor, training_id, edit, now)
     await PublishService(session, messenger).refresh_posts(training_id)
     return training
@@ -154,6 +165,8 @@ async def manual_add_participant(
     session: AsyncSession, messenger: Messenger, actor: User, training_id: int, user_id: int, now: datetime,
     allow_over_limit: bool = False,
 ) -> JoinOutcome:
+    """Ручная запись участника тренером или админом. При успехе обновляет посты и уведомляет участника;
+    `allow_over_limit` разрешает превысить лимит. Исход: JOINED / ALREADY / OVER_LIMIT."""
     outcome = await ParticipationService(session).manual_add(
         actor, training_id, user_id, now, allow_over_limit=allow_over_limit
     )
@@ -168,6 +181,8 @@ async def manual_add_participant(
 async def manual_remove_participant(
     session: AsyncSession, messenger: Messenger, actor: User, training_id: int, user_id: int, now: datetime
 ) -> bool:
+    """Ручное снятие участника: отменяет его заказы инвентаря, обновляет посты, уведомляет участника.
+    Возвращает False, если он уже не был записан."""
     removed = await ParticipationService(session).manual_remove(actor, training_id, user_id, now)
     log.info("manual remove training=%s user=%s by=%s -> %s", training_id, user_id, actor.telegram_id, removed)
     if removed:

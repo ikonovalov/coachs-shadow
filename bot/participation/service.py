@@ -14,6 +14,8 @@ from bot.users.models import User
 
 
 class JoinOutcome(str, Enum):
+    """Исход записи: JOINED — записан, ALREADY — уже был записан, FULL — нет мест,
+    OVER_LIMIT — ручное добавление упёрлось в лимит."""
     JOINED = "joined"
     ALREADY = "already"
     FULL = "full"
@@ -21,10 +23,13 @@ class JoinOutcome(str, Enum):
 
 
 class ParticipationService:
+    """Запись на тренировки и отказ. Лимит мест соблюдается атомарно (ARCHITECTURE §8)."""
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def join(self, training_id: int, user_id: int, now: datetime) -> JoinOutcome:
+        """Запись «Пойду» (идемпотентна). NotFound / InvalidAction — тренировки нет, она отменена,
+        ещё не опубликована или уже началась."""
         training = await self._open_training(training_id, now)
         return await self._take_seat(training, user_id, now, enforce_capacity=True)
 
@@ -46,6 +51,8 @@ class ParticipationService:
     async def manual_add(
         self, actor: User, training_id: int, user_id: int, now: datetime, *, allow_over_limit: bool = False
     ) -> JoinOutcome:
+        """Запись участника тренером или админом (права: can_manage); `allow_over_limit` игнорирует лимит.
+        PermissionDenied — нет прав на тренировку, NotFound — нет пользователя."""
         training = await self._open_training(training_id, now)
         if not await can_manage(self.session, actor, training):
             raise PermissionDenied("Нет прав на эту тренировку")
@@ -57,6 +64,8 @@ class ParticipationService:
         return JoinOutcome.OVER_LIMIT if outcome == JoinOutcome.FULL else outcome
 
     async def manual_remove(self, actor: User, training_id: int, user_id: int, now: datetime) -> bool:
+        """Снятие участника тренером или админом. True, если он действительно был записан
+        (из двух одновременных нажатий снимает одно)."""
         training = await self._open_training(training_id, now)
         if not await can_manage(self.session, actor, training):
             raise PermissionDenied("Нет прав на эту тренировку")
@@ -73,9 +82,11 @@ class ParticipationService:
         return removed.rowcount == 1
 
     async def going_count(self, training_id: int) -> int:
+        """Сколько человек записано (GOING)."""
         return await going_count(self.session, training_id)
 
     async def list_participants(self, training_id: int) -> tuple[list[User], list[User]]:
+        """Пара списков (записаны, отказались) в порядке изменения записи."""
         rows = await self.session.execute(
             select(Participation.status, User)
             .join(User, User.telegram_id == Participation.user_id)

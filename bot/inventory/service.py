@@ -32,18 +32,21 @@ class NotGoing(InvalidAction):
 
 @dataclass
 class ConfirmResult:
+    """Итог подтверждения: созданные заказы и виды единиц, которые не удалось взять."""
     orders: list[InventoryOrder]
     conflicts: list[str]  # виды единиц, которые успели забрать или вывели из парка
 
 
 @dataclass
 class OrderView:
+    """Заказ вместе с единицей и тренировкой — для показа в «Моих записях»."""
     order: InventoryOrder
     item: InventoryItem
     training: Training
 
 
 def to_candidate(item: InventoryItem) -> Candidate:
+    """Единица парка → кандидат для подбора."""
     return Candidate(
         id=item.id, kind=item.kind, label=item.label, frame=item.frame, height_min=item.height_min,
         height_max=item.height_max, shoe_eu=item.shoe_eu, cleat_type=item.cleat_type,
@@ -115,12 +118,14 @@ def _already_ordered_error(kinds: set[str]) -> InvalidAction:
 
 
 class InventoryService:
+    """Парк инвентаря и заказы на тренировки: учёт, подбор, подтверждение, отмена, сводка тренера."""
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     # ---- парк ----
 
     async def add_item(self, actor: User, kind: str, label: str, **params) -> InventoryItem:
+        """Добавляет единицу в парк (админ); вид и параметры валидируются."""
         require_admin(actor)
         _validate_item(kind, label, params)
         item = InventoryItem(kind=kind, label=label.strip(), **params)
@@ -129,6 +134,7 @@ class InventoryService:
         return item
 
     async def set_active(self, actor: User, item_id: int, active: bool) -> InventoryItem:
+        """Выводит единицу из парка или возвращает (админ). Заказы не трогает — их отменяет usecases.set_item_active."""
         require_admin(actor)
         item = await self.session.get(InventoryItem, item_id)
         if item is None:
@@ -138,6 +144,7 @@ class InventoryService:
         return item
 
     async def list_items(self, include_inactive: bool = True) -> list[InventoryItem]:
+        """Единицы парка по виду и id; `include_inactive=False` скрывает выведенные."""
         query = select(InventoryItem).order_by(InventoryItem.kind, InventoryItem.id)
         if not include_inactive:
             query = query.where(InventoryItem.active.is_(True))
@@ -146,6 +153,8 @@ class InventoryService:
     # ---- проверки ----
 
     async def check_can_order(self, training_id: int, user_id: int, now: datetime) -> Training:
+        """Проверяет, что участник может заказывать: тренировка запланирована и не началась, дедлайн не прошёл,
+        участник записан (иначе NotGoing). Возвращает тренировку."""
         training = await self.session.get(Training, training_id)
         if training is None:
             raise NotFound("Тренировка не найдена")
@@ -201,11 +210,14 @@ class InventoryService:
         )
 
     async def own_shoes_problem(self, own_cleat: str | None, pedal_type: str | None) -> str | None:
+        """Текст проблемы совместимости собственных туфель с педалями или None, если всё в порядке."""
         return own_shoes_problem(own_cleat, pedal_type, await self._compat())
 
     # ---- подбор ----
 
     async def suggest(self, training_id: int, user: User, wanted: Wanted, now: datetime) -> list[Suggestion]:
+        """Подбирает свободные единицы под пожелания и профиль. Ничего не бронирует — заказ создаёт confirm.
+        InvalidAction — не хватает данных профиля, не выбран тип педалей, несовместимость или вид уже заказан."""
         training = await self.check_can_order(training_id, user.telegram_id, now)
         await self._reject_kinds_already_ordered(training_id, user.telegram_id, set(wanted.kinds))
         profile = Profile(user.height_cm, user.foot_eu, user.helmet_size)
@@ -320,6 +332,7 @@ class InventoryService:
     # ---- мои заказы и отмена ----
 
     async def my_orders(self, user_id: int, now: datetime) -> list[OrderView]:
+        """Активные заказы участника на будущие запланированные тренировки."""
         rows = await self.session.execute(
             select(InventoryOrder, InventoryItem, Training)
             .join(InventoryItem, InventoryItem.id == InventoryOrder.item_id)
@@ -333,6 +346,7 @@ class InventoryService:
         return [OrderView(o, i, t) for o, i, t in rows]
 
     async def cancel_order(self, order_id: int, user_id: int, now: datetime) -> InventoryOrder:
+        """Отмена заказа его владельцем до начала тренировки (из двух нажатий отменяет одно)."""
         order = await self.session.get(InventoryOrder, order_id)
         if order is None:
             raise NotFound("Заказ не найден")
@@ -368,9 +382,11 @@ class InventoryService:
         return cancelled
 
     async def cancel_for_participant(self, training_id: int, user_id: int) -> list[InventoryOrder]:
+        """Отменяет активные заказы участника на тренировку; возвращает реально отменённые."""
         return await self._cancel_where(InventoryOrder.training_id == training_id, InventoryOrder.user_id == user_id)
 
     async def cancel_for_training(self, training_id: int) -> list[InventoryOrder]:
+        """Отменяет все активные заказы тренировки; возвращает реально отменённые."""
         return await self._cancel_where(InventoryOrder.training_id == training_id)
 
     async def cancel_for_item(self, actor: User, item_id: int, now: datetime) -> list[InventoryOrder]:
@@ -383,6 +399,7 @@ class InventoryService:
     # ---- сводка тренера ----
 
     async def training_summary(self, actor: User, training_id: int) -> list[OrderLine]:
+        """Сводка заказов на тренировку для тренера (права: can_manage), по имени участника."""
         training = await self.session.get(Training, training_id)
         if training is None:
             raise NotFound("Тренировка не найдена")

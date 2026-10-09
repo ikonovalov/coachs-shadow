@@ -20,6 +20,8 @@ log = logging.getLogger(__name__)
 
 
 class PublishService:
+    """Публикация карточек тренировок в чаты уровней, их обновление и уведомления участников.
+    Недоступный чат не прерывает работу: админам уходит предупреждение."""
     def __init__(self, session: AsyncSession, messenger: Messenger, *, send_delay: float = 0.05) -> None:
         self.session = session
         self.messenger = messenger
@@ -29,6 +31,8 @@ class PublishService:
         return ZoneInfo(await get_setting(self.session, "club_timezone"))
 
     async def build_card(self, training: Training, published: bool | None = None) -> CardData:
+        """Собирает данные карточки: тренер, число записанных, уровни, время открытия записи.
+        `published` переопределяет признак публикации (для карточки до коммита)."""
         trainer = await self.session.get(User, training.trainer_id)
         going = await self.session.scalar(
             select(func.count())
@@ -53,9 +57,12 @@ class PublishService:
         )
 
     async def render(self, training: Training, published: bool | None = None) -> tuple[str, Keyboard]:
+        """Текст и клавиатура карточки в часовом поясе клуба."""
         return render_card(await self.build_card(training, published), await self._tz())
 
     async def publish(self, training_id: int, now: datetime) -> None:
+        """Публикует тренировку в чаты её уровней. Идемпотентна: отменённая, уже опубликованная или начавшаяся
+        пропускается, чаты с постом не дублируются. Если чатов нет или часть недоступна — предупреждает админов."""
         training = await self.session.get(Training, training_id)
         if (
             training is None
@@ -97,6 +104,7 @@ class PublishService:
             )
 
     async def refresh_posts(self, training_id: int) -> None:
+        """Перерисовывает все посты тренировки (счётчик, статус); при недоступном чате предупреждает админов."""
         training = await self.session.get(Training, training_id)
         if training is None:
             return
@@ -117,6 +125,7 @@ class PublishService:
         await self.session.commit()
 
     async def close(self, training_id: int, now: datetime) -> None:
+        """Автозакрытие: после старта переводит тренировку в DONE и обновляет посты. Идемпотентна."""
         training = await self.session.get(Training, training_id)
         if training is None or training.status != TrainingStatus.SCHEDULED or training.starts_at > now:
             return
@@ -126,6 +135,7 @@ class PublishService:
         await self.refresh_posts(training_id)
 
     async def send_reminders(self, training_id: int, now: datetime) -> None:
+        """Напоминает записанным о скорой тренировке в личку; для отменённой или начавшейся ничего не шлёт."""
         training = await self.session.get(Training, training_id)
         if training is None or training.status != TrainingStatus.SCHEDULED or training.starts_at <= now:
             return
@@ -136,6 +146,7 @@ class PublishService:
                 log.info("reminder not delivered to %s (bot not started?)", user_id)
 
     async def announce_cancelled(self, training_id: int) -> None:
+        """Обновляет посты отменённой тренировки и уведомляет записанных."""
         training = await self.session.get(Training, training_id)
         if training is None:
             return
@@ -148,6 +159,7 @@ class PublishService:
     # ---- helpers ----
 
     async def post_link(self, training_id: int) -> str | None:
+        """Ссылка на пост тренировки; None, если постов нет или чат не супергруппа."""
         post = await self.session.scalar(
             select(TrainingPost).where(TrainingPost.training_id == training_id).order_by(TrainingPost.chat_id)
         )
@@ -159,6 +171,8 @@ class PublishService:
         return f"https://t.me/c/{chat[4:]}/{post.message_id}"
 
     async def announce_replaced(self, old_id: int, new_id: int | None) -> None:
+        """Тренировка заменена при правке серии: без пары — то же, что отмена; иначе записанным уходит
+        уведомление со ссылкой на пост новой тренировки."""
         if new_id is None:
             await self.announce_cancelled(old_id)
             return
@@ -175,6 +189,7 @@ class PublishService:
                 log.info("replace notice not delivered to %s (bot not started?)", user_id)
 
     async def notify_manual_change(self, training_id: int, user_id: int, added: bool) -> None:
+        """Уведомляет участника, что тренер записал его (`added=True`) или снял с тренировки."""
         training = await self.session.get(Training, training_id)
         if training is None:
             return

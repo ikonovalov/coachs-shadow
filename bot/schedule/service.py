@@ -31,6 +31,7 @@ MAX_LEVEL_NAME = 50
 
 @dataclass
 class SeriesInput:
+    """Шаблон серии или разовой тренировки в том виде, как его вводит пользователь; пустой `weekdays` — разовая."""
     kind: str
     place: str
     level_ids: list[int]
@@ -46,6 +47,7 @@ class SeriesInput:
 
 @dataclass
 class TrainingEdit:
+    """Правка одной тренировки: None — поле не менять, `clear_capacity` снимает лимит мест."""
     place: str | None = None
     description: str | None = None
     capacity: int | None = None
@@ -54,11 +56,13 @@ class TrainingEdit:
 
 @dataclass(frozen=True)
 class ReplacedTraining:
+    """Пара «старая → новая тренировка» после правки серии."""
     old_id: int
     new_id: int | None  # None: пары нет, участникам уйдёт обычное уведомление об отмене
 
 
 def series_to_input(series: TrainingSeries) -> SeriesInput:
+    """Превращает серию обратно в SeriesInput — для предзаполнения формы правки."""
     return SeriesInput(
         kind=series.kind,
         place=series.place,
@@ -80,12 +84,15 @@ def is_active_series(series: TrainingSeries, today: date) -> bool:
 
 
 class ScheduleService:
+    """Уровни, чаты, серии и тренировки: создание, генерация, правка, отмена. Права проверяются здесь;
+    посты и уведомления — в bot/usecases.py."""
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     # ---- levels and chats (admin) ----
 
     async def add_level(self, actor: User, name: str, position: int = 0) -> Level:
+        """Добавляет уровень (админ): название непустое, не длиннее MAX_LEVEL_NAME, уникальное."""
         require_admin(actor)
         name = name.strip()
         if not name:
@@ -100,9 +107,11 @@ class ScheduleService:
         return level
 
     async def list_levels(self) -> list[Level]:
+        """Все уровни по position, затем по имени."""
         return list(await self.session.scalars(select(Level).order_by(Level.position, Level.name)))
 
     async def get_level(self, level_id: int) -> Level:
+        """Уровень по id или NotFound."""
         level = await self.session.get(Level, level_id)
         if level is None:
             raise NotFound("Уровень не найден")
@@ -129,6 +138,7 @@ class ScheduleService:
         return level
 
     async def bind_chat(self, actor: User, chat_id: int, title: str, level_name: str) -> Chat:
+        """Привязывает чат к уровню по имени (админ); повторный вызов переносит чат на другой уровень."""
         require_admin(actor)
         level = await self.session.scalar(select(Level).where(Level.name == level_name.strip()))
         if level is None:
@@ -146,6 +156,9 @@ class ScheduleService:
     # ---- series ----
 
     async def create_series(self, actor: User, data: SeriesInput, now: datetime) -> TrainingSeries:
+        """Создаёт серию (разовую тренировку, если `weekdays` пуст) и генерирует тренировки на GENERATION_WEEKS недель
+        вперёд вместе с задачами публикации, напоминания и закрытия. Тренер — только для уровней своих чатов;
+        другого тренера назначает админ."""
         self._validate(data)
         await self._check_can_create(actor, set(data.level_ids))
         trainer_id = data.trainer_id or actor.telegram_id
@@ -182,6 +195,8 @@ class ScheduleService:
         return series
 
     async def generate(self, now: datetime) -> list[Training]:
+        """Догенерирует тренировки по всем незавершённым сериям; уже существующие даты не дублируются.
+        Возвращает созданные."""
         tz = await self._tz()
         today = now.astimezone(tz).date()
         all_series = await self.session.scalars(
@@ -194,6 +209,7 @@ class ScheduleService:
         return created
 
     async def upcoming(self, now: datetime, limit: int = 10) -> list[Training]:
+        """Ближайшие запланированные тренировки в окне SCHEDULE_VIEW_DAYS."""
         rows = await self.session.scalars(
             select(Training)
             .where(
@@ -209,6 +225,7 @@ class ScheduleService:
     # ---- cancel ----
 
     async def can_manage(self, actor: User, training: Training) -> bool:
+        """Может ли `actor` управлять тренировкой (см. bot.schedule.queries.can_manage)."""
         return await can_manage(self.session, actor, training)
 
     async def cancel(self, actor: User, training_ids: list[int], now: datetime) -> list[Training]:
@@ -247,6 +264,7 @@ class ScheduleService:
             await cancel_for_training(self.session, training.id, now)
 
     async def allowed_levels(self, actor: User) -> list[Level]:
+        """Уровни, для которых `actor` может создавать тренировки: все у админа, уровни своих чатов у тренера."""
         query = select(Level).order_by(Level.position, Level.id)
         if actor.role != Role.ADMIN:
             ids = await trainer_level_ids(self.session, actor.telegram_id)
@@ -254,6 +272,8 @@ class ScheduleService:
         return list(await self.session.scalars(query))
 
     async def managed_trainings(self, actor: User, now: datetime, limit: int = 20) -> list[Training]:
+        """Будущие запланированные тренировки, которыми `actor` может управлять (не более `limit`).
+        Для не-тренеров пусто."""
         if actor.role not in (Role.ADMIN, Role.TRAINER):
             return []
         candidates = await self.session.scalars(
@@ -278,6 +298,8 @@ class ScheduleService:
         return result
 
     async def update_training(self, actor: User, training_id: int, edit: TrainingEdit, now: datetime) -> Training:
+        """Правит место, описание и лимит одной будущей тренировки; лимит не может быть меньше числа записанных.
+        Права — can_manage."""
         training = await self.session.get(Training, training_id)
         if training is None:
             raise NotFound("Тренировка не найдена")
@@ -385,6 +407,7 @@ class ScheduleService:
         return list(await self.session.scalars(query))
 
     async def future_training_count(self, series_id: int, now: datetime) -> int:
+        """Число будущих запланированных тренировок серии."""
         count = await self.session.scalar(
             select(func.count())
             .select_from(Training)
