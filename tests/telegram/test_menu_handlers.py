@@ -5,7 +5,8 @@ import pytest
 from aiogram.exceptions import TelegramBadRequest
 
 from bot.core.errors import PermissionDenied
-from bot.telegram.handlers import common
+from bot.participation.service import ParticipationService
+from bot.telegram.handlers import common, my
 from bot.telegram.states import AdminInput
 from bot.users.roles import RoleService
 from tests.factories import NOW, add_chat, add_chat_trainer, add_level, add_training, add_user
@@ -141,9 +142,23 @@ async def test_my_button_sends_my_records_and_clears_state(session):
     cb = FakeCallback("menu:my")
     await common.on_menu_my(cb, session, member, state)
     assert len(cb.message.answers) == 1
-    assert callback_data(cb.message.answers[0][1])[-1] == "menu:back"
+    assert cb.message.answers[0][1] is None  # записей нет — под текстом только «назад», он лишний
     assert cb.answers == [(None, False)]
     assert await state.get_state() is None
+
+
+async def test_my_with_records_keeps_back_button(session, monkeypatch):
+    monkeypatch.setattr(my, "utcnow", lambda: NOW)
+    member = await add_user(session, 1, "member")
+    trainer = await add_user(session, 10, "trainer")
+    level = await add_level(session)
+    training = await add_training(
+        session, trainer=trainer, levels=[level], starts_at=NOW + timedelta(days=1), published_at=NOW
+    )
+    await ParticipationService(session).join(training.id, member.telegram_id, NOW)
+    msg = FakeMessage()
+    await my.send_my(msg, session, member)
+    assert callback_data(msg.answers[0][1])[-1] == "menu:back"
 
 
 async def test_profile_button_sends_profile_with_edit_buttons_and_clears_state(session):
