@@ -64,6 +64,7 @@ async def begin_inventory(message: Message, state: FSMContext, session: AsyncSes
 
 @router.callback_query(F.data.regexp(r"^inv:\d+$"))
 async def on_inventory_button(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Кнопка «🚲 Инвентарь» на карточке: в личке начинает заказ, в группе уводит в личку диплинком."""
     training_id = int(cb.data.split(":")[1])
     if cb.message is not None and cb.message.chat.type == "private":
         await begin_inventory(cb.message, state, session, user, training_id)
@@ -77,6 +78,7 @@ async def on_inventory_button(cb: CallbackQuery, state: FSMContext, session: Asy
 
 @router.callback_query(InventoryFlow.kinds, F.data.regexp(r"^iv:k:[a-z_]+$"))
 async def on_kind_toggle(cb: CallbackQuery, state: FSMContext) -> None:
+    """Отмечает или снимает вид инвентаря в списке заказа."""
     kind = cb.data.split(":")[2]
     if kind not in KIND_LABELS:
         await cb.answer(STALE, show_alert=True)
@@ -90,6 +92,7 @@ async def on_kind_toggle(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(InventoryFlow.kinds, F.data == "iv:kdone")
 async def on_kinds_done(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Виды выбраны: подставляет уже заказанные педали/туфли для проверки совместимости и идёт дальше."""
     if not (await state.get_data()).get("kinds"):
         await cb.answer("Выберите хотя бы одну позицию", show_alert=True)
         return
@@ -156,6 +159,7 @@ async def _check_own_shoes(message: Message, state: FSMContext, session: AsyncSe
 
 @router.callback_query(InventoryFlow.pedal, F.data.regexp(r"^iv:p:[a-z_]+$"))
 async def on_pedal(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Выбор типа педалей; сразу проверяет совместимость со своими туфлями."""
     pedal_type = cb.data.split(":")[2]
     if pedal_type not in PEDAL_TYPES:
         await cb.answer(STALE, show_alert=True)
@@ -168,6 +172,7 @@ async def on_pedal(cb: CallbackQuery, state: FSMContext, session: AsyncSession, 
 
 @router.callback_query(InventoryFlow.shoes, F.data.in_({"iv:s:own", "iv:s:park"}))
 async def on_shoes_source(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Ответ «туфли свои или из парка»: из парка добавляет туфли в заказ."""
     own = cb.data == "iv:s:own"
     data = await state.get_data()
     kinds = set(data["kinds"])
@@ -180,6 +185,7 @@ async def on_shoes_source(cb: CallbackQuery, state: FSMContext, session: AsyncSe
 
 @router.callback_query(InventoryFlow.cleat, F.data.regexp(r"^iv:c:[a-z_]+$"))
 async def on_cleat(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Выбор шипов своих туфель; сохраняется в профиль."""
     cleat = cb.data.split(":")[2]
     await UserService(session).update_profile(user, "cleat_type", cleat)  # проверяет значение; сохраняется в профиль
     await state.update_data(own_cleat=user.cleat_type)
@@ -190,6 +196,7 @@ async def on_cleat(cb: CallbackQuery, state: FSMContext, session: AsyncSession, 
 
 @router.callback_query(InventoryFlow.helmet, F.data.regexp(r"^iv:h:[A-Za-z]+$"))
 async def on_helmet(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Выбор размера шлема; сохраняется в профиль."""
     await UserService(session).update_profile(user, "helmet_size", cb.data.split(":")[2])  # значение проверяет сервис
     await _advance(cb.message, state, session, user)
     await cb.answer()
@@ -197,6 +204,7 @@ async def on_helmet(cb: CallbackQuery, state: FSMContext, session: AsyncSession,
 
 @router.message(InventoryFlow.profile, F.text, ~F.text.startswith("/"))
 async def on_profile_text(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Текстовый ввод недостающего поля профиля (рост, размер ноги). При ошибке ввод можно повторить."""
     data = await take_form(state, InventoryFlow.profile, key="ask")
     if data is None:
         return
@@ -211,6 +219,7 @@ async def on_profile_text(message: Message, state: FSMContext, session: AsyncSes
 
 @router.message(InventoryFlow.profile)
 async def on_profile_not_text(message: Message, state: FSMContext) -> None:
+    """Не текст в ожидании поля профиля: повторяет подсказку."""
     field = (await state.get_data()).get("ask")
     await message.answer(PROFILE_PROMPTS.get(field, "Ответьте текстом"))
 
@@ -236,6 +245,8 @@ async def _review(message: Message, state: FSMContext, session: AsyncSession, us
 
 @router.callback_query(F.data == "iv:ok")
 async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Подтверждение подобранного: заказывает единицы одним вызовом сервиса.
+    Если часть успели забрать — подбирает замену только для этих видов."""
     data = await take_form(state, InventoryFlow.review, key="suggestions")  # двойной тап подтвердит один раз
     if data is None:
         await cb.answer(STALE, show_alert=True)
@@ -271,6 +282,7 @@ async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession
 @router.callback_query(F.data == "iv:no")
 async def on_cancel(cb: CallbackQuery, state: FSMContext) -> None:
     # без фильтра состояния: «Отмена» есть на каждом шаге диалога; вне диалога кнопка устарела
+    """Отмена диалога заказа на любом шаге; уже подтверждённые позиции сохраняются."""
     if await state.get_state() not in InventoryFlow:
         await cb.answer(STALE + ". Отменить заказ можно в /my_bookings", show_alert=True)
         return
@@ -288,6 +300,7 @@ async def on_cancel(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.regexp(r"^tr:inv:\d+$"))
 async def on_trainer_summary(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Сводка заказов инвентаря на тренировку для тренера (права проверяет сервис)."""
     training_id = int(cb.data.split(":")[2])
     lines = await InventoryService(session).training_summary(user, training_id)  # права проверяет сервис
     training = await session.get(Training, training_id)
@@ -303,4 +316,5 @@ async def on_trainer_summary(cb: CallbackQuery, session: AsyncSession, user: Use
 
 @router.callback_query(F.data.startswith("iv:") | F.data.startswith("inv:"))
 async def on_stale(cb: CallbackQuery) -> None:
+    """Catch-all `iv:` / `inv:`: кнопка устарела."""
     await cb.answer(STALE, show_alert=True)

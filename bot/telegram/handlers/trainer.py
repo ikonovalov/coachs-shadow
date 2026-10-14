@@ -36,6 +36,7 @@ router = Router()
 
 
 async def ensure_trainer(session: AsyncSession, user: User) -> None:
+    """Пропускает админа и тренера, добавленного хотя бы в один чат; иначе PermissionDenied."""
     if user.role == Role.ADMIN:
         return
     if user.role != Role.TRAINER:
@@ -81,6 +82,7 @@ def _id(cb: CallbackQuery, index: int = 2) -> int:
 
 @router.message(Command("trainer"), F.chat.type == "private")
 async def cmd_trainer(message: Message, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """`/trainer` — меню тренера; сбрасывает незавершённую форму."""
     await ensure_trainer(session, user)
     await state.clear()
     await message.answer("Меню тренера", reply_markup=TRAINER_MENU)
@@ -88,6 +90,7 @@ async def cmd_trainer(message: Message, session: AsyncSession, user: User, state
 
 @router.callback_query(F.data == "tr:menu")
 async def on_menu(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """Возврат в меню тренера; сбрасывает незавершённую форму."""
     await ensure_trainer(session, user)
     await state.clear()
     await safe_edit(cb.message, "Меню тренера", reply_markup=TRAINER_MENU)
@@ -96,6 +99,7 @@ async def on_menu(cb: CallbackQuery, session: AsyncSession, user: User, state: F
 
 @router.callback_query(F.data == "tr:list")
 async def on_list(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Список управляемых будущих тренировок с кнопкой массовой отмены."""
     await ensure_trainer(session, user)
     items = await ScheduleService(session).managed_trainings(user, utcnow())
     tz = await club_tz(session)
@@ -109,6 +113,7 @@ async def on_list(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
 
 @router.callback_query(F.data.startswith("tr:t:"))
 async def on_detail(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
+    """Карточка тренировки с действиями: отмена, правка полей, участники, инвентарь, правка серии."""
     await ensure_trainer(session, user)
     training = await _get_managed(session, user, _id(cb))
     text, _ = await PublishService(session, messenger).render(training)
@@ -132,6 +137,7 @@ async def on_detail(cb: CallbackQuery, session: AsyncSession, user: User, messen
 
 @router.callback_query(F.data.startswith("tr:cancel:"))
 async def on_cancel_ask(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Запрос подтверждения отмены одной тренировки."""
     training = await _get_managed(session, user, _id(cb))
     tz = await club_tz(session)
     await safe_edit(cb.message, 
@@ -143,6 +149,7 @@ async def on_cancel_ask(cb: CallbackQuery, session: AsyncSession, user: User) ->
 
 @router.callback_query(F.data.startswith("tr:cancelok:"))
 async def on_cancel_do(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
+    """Отменяет тренировку через usecase (права проверяет сервис)."""
     await cancel_trainings(session, messenger, user, [_id(cb)], utcnow())
     await safe_edit(cb.message, "Тренировка отменена", reply_markup=markup([("⬅️ К списку", "tr:list")]))
     await cb.answer()
@@ -160,6 +167,7 @@ async def _render_multi(cb: CallbackQuery, session: AsyncSession, user: User, st
 
 @router.callback_query(F.data == "tr:multi")
 async def on_multi(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """Начинает выбор нескольких тренировок для отмены."""
     await ensure_trainer(session, user)
     await state.clear()
     await state.update_data(sel=[])
@@ -169,6 +177,7 @@ async def on_multi(cb: CallbackQuery, session: AsyncSession, user: User, state: 
 
 @router.callback_query(F.data.startswith("tr:mt:"))
 async def on_multi_toggle(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """Отмечает или снимает отметку тренировки в списке массовой отмены."""
     tid = _id(cb)
     sel = set((await state.get_data()).get("sel", []))
     sel.symmetric_difference_update({tid})
@@ -179,6 +188,7 @@ async def on_multi_toggle(cb: CallbackQuery, session: AsyncSession, user: User, 
 
 @router.callback_query(F.data == "tr:mgo")
 async def on_multi_ask(cb: CallbackQuery, state: FSMContext) -> None:
+    """Запрос подтверждения отмены отмеченных тренировок."""
     sel = (await state.get_data()).get("sel", [])
     if not sel:
         await cb.answer("Ничего не выбрано", show_alert=True)
@@ -192,6 +202,8 @@ async def on_multi_ask(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "tr:mok")
 async def on_multi_do(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger, state: FSMContext) -> None:
+    """Отменяет отмеченные тренировки одним вызовом (всё или ничего).
+    При ошибке выбор возвращается."""
     data = await take_form(state, key="sel")  # до сервиса: повторное нажатие ничего не найдёт
     if data is None:
         await cb.answer()
@@ -210,6 +222,7 @@ async def on_multi_do(cb: CallbackQuery, session: AsyncSession, user: User, mess
 
 @router.callback_query(F.data.startswith("tr:edit:"))
 async def on_edit_training(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Просит новое значение поля тренировки (место, описание, лимит)."""
     _, _, tid, field = cb.data.split(":")
     if field not in TRAINING_FIELD_PROMPTS:
         raise InvalidAction("Это поле нельзя изменить")
@@ -225,6 +238,7 @@ async def on_edit_training(cb: CallbackQuery, state: FSMContext, session: AsyncS
 
 @router.callback_query(F.data == "tr:slist")
 async def on_series_list(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Список активных серий тренера (все — у админа)."""
     await ensure_trainer(session, user)
     items = await ScheduleService(session).active_series(user, utcnow())
     rows = [[(series_title(series_to_input(s)), f"tr:series:{s.id}")] for s in items]
@@ -235,6 +249,7 @@ async def on_series_list(cb: CallbackQuery, session: AsyncSession, user: User) -
 
 @router.callback_query(F.data.startswith("tr:series:"))
 async def on_series_menu(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Меню серии: правка полей и завершение."""
     sid = _id(cb)
     series = await _get_editable_series(session, user, sid)
     labels = {"kind": "Тип", "place": "Место", "description": "Описание", "capacity": "Лимит",
@@ -255,6 +270,7 @@ async def on_series_menu(cb: CallbackQuery, session: AsyncSession, user: User) -
 
 @router.callback_query(F.data.startswith("tr:sedit:"))
 async def on_edit_series(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Просит новое значение поля серии."""
     _, _, sid, field = cb.data.split(":")
     if field not in SERIES_FIELD_PROMPTS:
         raise InvalidAction("Это поле нельзя изменить")
@@ -270,6 +286,8 @@ async def on_edit_series(cb: CallbackQuery, state: FSMContext, session: AsyncSes
 async def on_edit_value(
     message: Message, state: FSMContext, session: AsyncSession, user: User, messenger: Messenger
 ) -> None:
+    """Текст в состоянии `EditField.value`: сразу применяет правку тренировки;
+    для серии проверяет ввод и просит подтвердить."""
     data = await state.get_data()
     now = utcnow()
     if data["target"] == "training":
@@ -294,6 +312,8 @@ async def on_edit_value(
 
 @router.callback_query(EditField.value, F.data == "tr:sok")
 async def on_series_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User, messenger: Messenger) -> None:
+    """Подтверждение правки серии: применяет шаблон к будущим тренировкам.
+    При ошибке форма возвращается."""
     data = await take_form(state, EditField.value, key="text")  # до сервиса: двойное нажатие применит один раз
     if data is None:
         await cb.answer("Сначала введите значение")
@@ -314,6 +334,7 @@ async def on_series_confirm(cb: CallbackQuery, state: FSMContext, session: Async
 
 @router.callback_query(F.data.startswith("tr:send:"))
 async def on_series_end_ask(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Запрос подтверждения завершения серии."""
     series = await _get_editable_series(session, user, _id(cb))
     count = await ScheduleService(session).future_training_count(series.id, utcnow())
     await safe_edit(cb.message,
@@ -327,6 +348,7 @@ async def on_series_end_ask(cb: CallbackQuery, session: AsyncSession, user: User
 
 @router.callback_query(F.data.startswith("tr:sendok:"))
 async def on_series_end_do(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
+    """Завершает серию: отменяет её будущие тренировки через usecase."""
     cancelled = await end_series(session, messenger, user, _id(cb), utcnow())
     await safe_edit(cb.message,
         f"Серия завершена. Отменено тренировок: {len(cancelled)}",
@@ -349,12 +371,14 @@ async def _show_participants(cb: CallbackQuery, session: AsyncSession, user: Use
 
 @router.callback_query(F.data.startswith("tr:who:"))
 async def on_who(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Список записавшихся и отказавшихся с кнопками снятия."""
     await _show_participants(cb, session, user, _id(cb))
     await cb.answer()
 
 
 @router.callback_query(F.data.startswith("tr:rm:"))
 async def on_remove(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
+    """Снимает участника с тренировки (права проверяет сервис) и перерисовывает список."""
     training_id, user_id = _id(cb), _id(cb, 3)
     await manual_remove_participant(session, messenger, user, training_id, user_id, utcnow())
     await _show_participants(cb, session, user, training_id)
@@ -363,11 +387,13 @@ async def on_remove(cb: CallbackQuery, session: AsyncSession, user: User, messen
 
 @router.callback_query(F.data.startswith("tr:add:"))
 async def on_add(cb: CallbackQuery, state: FSMContext) -> None:
+    """Запускает выбор пользователя для ручной записи на тренировку."""
     await start_picker(cb, state, purpose="manual_add", ctx={"training_id": _id(cb)}, prompt="Кого записать?")
 
 
 @on_pick("manual_add")
 async def picked_for_manual_add(cb, session, user, messenger, ctx, picked_id) -> None:
+    """Результат выбора: записывает участника; при превышении лимита спрашивает подтверждение."""
     training_id = ctx["training_id"]
     outcome = await manual_add_participant(session, messenger, user, training_id, picked_id, utcnow())
     if outcome == JoinOutcome.OVER_LIMIT:
@@ -385,6 +411,7 @@ async def picked_for_manual_add(cb, session, user, messenger, ctx, picked_id) ->
 
 @router.callback_query(F.data.startswith("tr:force:"))
 async def on_force(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
+    """Записывает участника сверх лимита (подтверждено тренером)."""
     training_id, user_id = _id(cb), _id(cb, 3)
     await manual_add_participant(session, messenger, user, training_id, user_id, utcnow(), allow_over_limit=True)
     await _show_participants(cb, session, user, training_id)

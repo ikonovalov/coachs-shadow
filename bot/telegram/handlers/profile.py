@@ -27,6 +27,7 @@ CHOICE_FIELDS = {"m": "helmet_size", "c": "cleat_type"}
 
 
 def profile_markup():
+    """Клавиатура профиля: рост, размер ноги, шлем и шипы."""
     return markup(
         [("📏 Рост", "pf:h"), ("🦶 Размер ноги", "pf:f")],
         [("⛑ S", "pf:m:S"), ("⛑ M", "pf:m:M"), ("⛑ L", "pf:m:L")],
@@ -36,17 +37,20 @@ def profile_markup():
 
 
 async def send_profile(message: Message, user: User) -> None:
+    """Отправляет профиль с клавиатурой."""
     await message.answer(render_profile(user) + HINT, reply_markup=profile_markup())
 
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message, user: User, state: FSMContext) -> None:
+    """`/profile` — показывает профиль; сбрасывает незавершённую форму."""
     await state.clear()
     await send_profile(message, user)
 
 
 @router.callback_query(F.data.in_(set(ASK_FIELDS)))
 async def on_ask(cb: CallbackQuery, state: FSMContext) -> None:
+    """Просит ввести число (рост или размер ноги)."""
     field = ASK_FIELDS[cb.data]
     await state.clear()
     await state.set_state(ProfileInput.value)
@@ -57,6 +61,7 @@ async def on_ask(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(ProfileInput.value, F.text, ~F.text.startswith("/"))
 async def on_value(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Текст в состоянии `ProfileInput.value`: сохраняет поле. При ошибке ввод можно повторить."""
     data = await take_form(state, ProfileInput.value, key="field")
     if data is None:
         return
@@ -71,6 +76,7 @@ async def on_value(message: Message, state: FSMContext, session: AsyncSession, u
 
 @router.callback_query(F.data.regexp(r"^pf:[mc]:[^:]+$"))
 async def on_choice(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Выбор шлема или шипов кнопкой (значение проверяет сервис)."""
     _, kind, value = cb.data.split(":")
     await UserService(session).update_profile(user, CHOICE_FIELDS[kind], value)  # значение проверяет сервис
     await safe_edit(cb.message, render_profile(user) + HINT, reply_markup=profile_markup())
@@ -79,4 +85,5 @@ async def on_choice(cb: CallbackQuery, session: AsyncSession, user: User) -> Non
 
 @router.callback_query(F.data.startswith("pf:"))
 async def on_stale(cb: CallbackQuery) -> None:
+    """Catch-all `pf:`: кнопка устарела."""
     await cb.answer("Кнопка устарела. Откройте профиль заново: /profile", show_alert=True)

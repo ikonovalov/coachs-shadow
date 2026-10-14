@@ -43,6 +43,7 @@ async def _finish(
 
 @router.callback_query(F.data.startswith("join:"))
 async def on_join(callback: CallbackQuery, session: AsyncSession, messenger: Messenger, user: User) -> None:
+    """Кнопка «Пойду»: записывает через usecase и отвечает исходом (места, повторная запись)."""
     training_id = _training_id(callback)
     outcome = await join_training(session, messenger, training_id, user.telegram_id, utcnow())
     await _finish(callback, session, messenger, user, training_id, JOIN_TEXT[outcome])
@@ -50,6 +51,7 @@ async def on_join(callback: CallbackQuery, session: AsyncSession, messenger: Mes
 
 @router.callback_query(F.data.startswith("decline:"))
 async def on_decline(callback: CallbackQuery, session: AsyncSession, messenger: Messenger, user: User) -> None:
+    """Кнопка «Не пойду»: фиксирует отказ через usecase."""
     training_id = _training_id(callback)
     await decline_training(session, messenger, training_id, user.telegram_id, utcnow())
     await _finish(callback, session, messenger, user, training_id, "Записали: не идёте")
@@ -57,6 +59,7 @@ async def on_decline(callback: CallbackQuery, session: AsyncSession, messenger: 
 
 @router.callback_query(F.data.startswith("who:"))
 async def on_who(callback: CallbackQuery, session: AsyncSession, messenger: Messenger, user: User) -> None:
+    """Кнопка «Кто идёт»: короткий список — во всплывающем окне, длинный — в личку, если бот запущен."""
     going, declined = await ParticipationService(session).list_participants(_training_id(callback))
     text = render_participants([u.name for u in going], [u.name for u in declined])
     if len(text) <= 190:

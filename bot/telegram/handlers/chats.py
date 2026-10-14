@@ -58,6 +58,7 @@ async def _show_list(cb: CallbackQuery, session: AsyncSession, user: User) -> No
 
 @router.callback_query(F.data == "ch:list")
 async def on_list(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """Список чатов под управлением пользователя."""
     await state.clear()
     await _show_list(cb, session, user)
     await cb.answer()
@@ -65,12 +66,14 @@ async def on_list(cb: CallbackQuery, session: AsyncSession, user: User, state: F
 
 @router.callback_query(F.data.startswith("ch:c:"))
 async def on_chat(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Экран чата: его тренеры, назначение главного, добавление и снятие."""
     await _show_chat(cb, session, user, int(cb.data.split(":")[2]))
     await cb.answer()
 
 
 @router.callback_query(F.data.startswith("ch:rm:"))
 async def on_remove(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Запрос подтверждения снятия тренера с чата."""
     _, _, chat_id, uid = cb.data.split(":")
     await _require_manageable(session, user, int(chat_id))
     target = await session.get(User, int(uid))
@@ -86,6 +89,7 @@ async def on_remove(cb: CallbackQuery, session: AsyncSession, user: User) -> Non
 
 @router.callback_query(F.data.startswith("ch:rmy:"))
 async def on_remove_confirmed(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Снимает тренера с чата (права проверяет сервис) и перерисовывает экран."""
     _, _, chat_id, uid = cb.data.split(":")
     await RoleService(session).remove_chat_trainer(user, int(chat_id), int(uid))
     try:
@@ -97,6 +101,7 @@ async def on_remove_confirmed(cb: CallbackQuery, session: AsyncSession, user: Us
 
 @router.callback_query(F.data.startswith("ch:lead:"))
 async def on_lead(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Назначает главного тренера чата (админ)."""
     _, _, chat_id, uid = cb.data.split(":")
     await RoleService(session).set_lead(user, int(chat_id), int(uid))
     await _show_chat(cb, session, user, int(chat_id))
@@ -105,6 +110,7 @@ async def on_lead(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
 
 @router.callback_query(F.data.startswith("ch:add:"))
 async def on_add(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """Запускает выбор тренера для добавления в чат."""
     chat_id = int(cb.data.split(":")[2])
     await _require_manageable(session, user, chat_id)
     await start_picker(
@@ -118,6 +124,7 @@ async def picked(
     cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger, ctx: dict, picked_id: int
 ) -> None:
     # RoleService re-checks that the actor manages the chat and that the target is a trainer
+    """Результат выбора: добавляет тренера в чат (права и роль цели проверяет сервис)."""
     await RoleService(session).add_chat_trainer(user, ctx["chat_id"], picked_id)
     await cb.message.answer("Тренер добавлен ✅", reply_markup=markup([("⬅️ К чатам", "ch:list")]))
     await cb.answer("Добавлен")
@@ -125,4 +132,5 @@ async def picked(
 
 @router.callback_query(F.data.startswith("ch:"))
 async def on_stale(cb: CallbackQuery) -> None:
+    """Catch-all `ch:`: кнопка устарела."""
     await cb.answer()

@@ -30,6 +30,7 @@ router.callback_query.filter(F.message.chat.type == "private")  # меню ад�
 
 
 def describe(item: InventoryItem) -> str:
+    """Строка единицы для списка: метка и параметры по виду."""
     detail = {
         "bike": f"рама {item.frame}, рост {item.height_min}–{item.height_max}",
         "pedals": f"{item.pedal_type}",
@@ -40,6 +41,7 @@ def describe(item: InventoryItem) -> str:
 
 
 async def park_screen(session: AsyncSession) -> tuple[str, object]:
+    """Текст и клавиатура парка. В кнопке — целевое состояние, поэтому повторное нажатие безопасно."""
     items = await InventoryService(session).list_items()
     # в кнопке — целевое состояние, а не «переключить»: повторный тап по старой кнопке ничего не меняет
     rows = [
@@ -53,6 +55,7 @@ async def park_screen(session: AsyncSession) -> tuple[str, object]:
 
 @router.callback_query(F.data == "ad:park")
 async def on_park(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """Экран парка инвентаря (админ)."""
     require_admin(user)
     await state.clear()
     text, kb = await park_screen(session)
@@ -62,6 +65,7 @@ async def on_park(cb: CallbackQuery, session: AsyncSession, user: User, state: F
 
 @router.callback_query(F.data.regexp(r"^ad:pk:\d+:[01]$"))
 async def on_toggle(cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger) -> None:
+    """Выводит единицу из парка или возвращает; при выводе будущие заказы отменяются через usecase."""
     _, _, item_id, active = cb.data.split(":")
     # права — в сервисе; при выводе из парка будущие заказы единицы отменяются, участники получают уведомление
     item, cancelled = await set_item_active(session, messenger, user, int(item_id), active == "1", utcnow())
@@ -76,6 +80,7 @@ async def on_toggle(cb: CallbackQuery, session: AsyncSession, user: User, messen
 
 @router.callback_query(F.data == "ad:pka")
 async def on_add(cb: CallbackQuery, user: User) -> None:
+    """Выбор вида добавляемой единицы."""
     require_admin(user)
     rows = [[(KIND_LABELS[k], f"ad:pkk:{k}")] for k in ITEM_FORMATS]
     await safe_edit(cb.message, "Что добавить?", reply_markup=markup(*rows, [("⬅️ Назад", "ad:park")]))
@@ -84,6 +89,7 @@ async def on_add(cb: CallbackQuery, user: User) -> None:
 
 @router.callback_query(F.data.startswith("ad:pkk:"))
 async def on_kind(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Просит ввести единицу одной строкой в формате вида."""
     require_admin(user)
     kind = cb.data.split(":", 2)[2]
     if kind not in ITEM_FORMATS:
@@ -97,6 +103,7 @@ async def on_kind(cb: CallbackQuery, state: FSMContext, user: User) -> None:
 
 @router.message(ParkInput.line, F.text, ~F.text.startswith("/"))
 async def on_line(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Разбирает строку и добавляет единицу. При ошибке ввод можно повторить."""
     data = await take_form(state, ParkInput.line, key="kind")  # два сообщения подряд: добавится одна единица
     if data is None:
         return
@@ -115,4 +122,5 @@ async def on_line(message: Message, state: FSMContext, session: AsyncSession, us
 
 @router.callback_query(F.data.startswith("ad:pk"))
 async def on_stale(cb: CallbackQuery) -> None:
+    """Catch-all `ad:pk*`: кнопка устарела."""
     await cb.answer("Кнопка устарела. Откройте парк заново: /admin", show_alert=True)

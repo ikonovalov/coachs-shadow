@@ -17,6 +17,7 @@ NO_LEVELS_HINT = "Уровней пока нет. Сначала создайт�
 
 @router.message(Command("bind_level"), F.chat.type.in_(GROUPS))
 async def cmd_bind_level(message: Message, command: CommandObject, session: AsyncSession, user: User) -> None:
+    """`/bind_level` в группе: с аргументом привязывает чат к уровню, без — показывает кнопки уровней (админ)."""
     service = ScheduleService(session)
     if command.args:
         await service.bind_chat(user, message.chat.id, message.chat.title or "", command.args)  # права — в сервисе
@@ -32,6 +33,7 @@ async def cmd_bind_level(message: Message, command: CommandObject, session: Asyn
 
 @router.callback_query(F.data.startswith(BIND_PREFIX), F.message.chat.type.in_(GROUPS))
 async def on_bind(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Выбор уровня для привязки группового чата (админ)."""
     require_admin(user)
     service = ScheduleService(session)
     try:
@@ -46,4 +48,5 @@ async def on_bind(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
 
 @router.callback_query(F.data.startswith(BIND_PREFIX))
 async def on_bind_stale(cb: CallbackQuery) -> None:
+    """Catch-all `bind:` вне группы: кнопка устарела."""
     await cb.answer()  # catch-all роутера: кнопка привязки вне группы

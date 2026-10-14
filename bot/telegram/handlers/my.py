@@ -45,17 +45,20 @@ async def _render(session: AsyncSession, user: User) -> tuple[str, InlineKeyboar
 
 
 async def send_my(message: Message, session: AsyncSession, user: User) -> None:
+    """Отправляет «Мои записи»."""
     text, keyboard = await _render(session, user)
     await message.answer(text, reply_markup=keyboard)
 
 
 @router.message(Command("my_bookings", "my"))
 async def cmd_my(message: Message, session: AsyncSession, user: User) -> None:
+    """`/my_bookings` (`/my`) — ближайшие записи и заказы инвентаря."""
     await send_my(message, session, user)
 
 
 @router.callback_query(F.data.regexp(r"^my:co:\d+$"))
 async def on_cancel_order(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Отмена своего заказа инвентаря (владельца и время проверяет сервис)."""
     order_id = int(cb.data.split(":")[2])
     # владельца, время старта и повторное нажатие (условный UPDATE) проверяет сервис
     await InventoryService(session).cancel_order(order_id, user.telegram_id, utcnow())
@@ -67,4 +70,5 @@ async def on_cancel_order(cb: CallbackQuery, session: AsyncSession, user: User) 
 
 @router.callback_query(F.data.startswith("my:"))
 async def on_stale(cb: CallbackQuery) -> None:
+    """Catch-all `my:`: кнопка устарела."""
     await cb.answer("Кнопка устарела. Обновите список: /my_bookings", show_alert=True)

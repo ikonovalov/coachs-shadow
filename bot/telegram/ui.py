@@ -13,20 +13,24 @@ from bot.schedule.models import Training
 
 
 def markup(*rows: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    """Inline-клавиатура из строк кнопок `(текст, callback_data)`."""
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=text, callback_data=data) for text, data in row] for row in rows]
     )
 
 
 async def club_tz(session: AsyncSession) -> ZoneInfo:
+    """Часовой пояс клуба из настроек."""
     return ZoneInfo(await get_setting(session, "club_timezone"))
 
 
 async def local_today(session: AsyncSession) -> date:
+    """Сегодняшняя дата в часовом поясе клуба."""
     return datetime.now(await club_tz(session)).date()
 
 
 def short_title(training: Training, tz: ZoneInfo) -> str:
+    """Краткое название тренировки для кнопки: «когда · тип»."""
     return f"{format_when(training.starts_at, training.duration_min, tz)} · {KIND_NAMES.get(training.kind, training.kind)}"
 
 

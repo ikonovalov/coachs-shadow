@@ -4,6 +4,7 @@ from bot.core.messenger import Keyboard
 
 
 def to_markup(keyboard: Keyboard | None) -> InlineKeyboardMarkup | None:
+    """Доменная клавиатура поста → InlineKeyboardMarkup (None остаётся None)."""
     if keyboard is None:
         return None
     return InlineKeyboardMarkup(

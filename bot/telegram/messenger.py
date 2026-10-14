@@ -6,10 +6,12 @@ from bot.telegram.keyboards import to_markup
 
 
 class AiogramMessenger:
+    """Реализация `Messenger` поверх aiogram: переводит ошибки Telegram в доменные."""
     def __init__(self, bot: Bot) -> None:
         self.bot = bot
 
     async def send(self, chat_id: int, text: str, keyboard: Keyboard | None = None) -> int:
+        """Отправляет сообщение, возвращает message_id. Недоступный чат — ChatUnavailable."""
         try:
             message = await self.bot.send_message(chat_id, text, reply_markup=to_markup(keyboard))
         except (TelegramForbiddenError, TelegramBadRequest) as exc:  # kicked / chat not found
@@ -17,6 +19,7 @@ class AiogramMessenger:
         return message.message_id
 
     async def edit_post(self, chat_id: int, message_id: int, text: str, keyboard: Keyboard | None = None) -> int:
+        """Правит пост; если его удалили вручную, отправляет заново. Возвращает актуальный message_id."""
         try:
             await self.bot.edit_message_text(
                 text, chat_id=chat_id, message_id=message_id, reply_markup=to_markup(keyboard)
@@ -33,6 +36,7 @@ class AiogramMessenger:
         return message_id
 
     async def notify(self, user_id: int, text: str, keyboard: Keyboard | None = None) -> bool:
+        """Пишет пользователю в личку. False, если он не запускал бота или заблокировал его."""
         try:
             await self.bot.send_message(user_id, text, reply_markup=to_markup(keyboard))
         except (TelegramForbiddenError, TelegramBadRequest):

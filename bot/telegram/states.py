@@ -2,6 +2,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class NewTraining(StatesGroup):
+    """Шаги создания серии или разовой тренировки."""
     kind = State()
     place = State()
     levels = State()
@@ -15,22 +16,27 @@ class NewTraining(StatesGroup):
 
 
 class EditField(StatesGroup):
+    """Ввод нового значения поля тренировки или серии."""
     value = State()  # data: target ("series"|"training"), id, field, text (после ввода, до подтверждения)
 
 
 class Picker(StatesGroup):
+    """Выбор пользователя по части имени."""
     query = State()  # data: purpose, ctx, roles
 
 
 class AdminInput(StatesGroup):
+    """Текстовый ввод в меню администратора (название уровня, значение настройки)."""
     value = State()  # data: purpose ("add_level" | "setting:<key>")
 
 
 class ProfileInput(StatesGroup):
+    """Ввод числового поля профиля."""
     value = State()  # data: field ("height_cm" | "foot_eu")
 
 
 class InventoryFlow(StatesGroup):
+    """Шаги заказа инвентаря участником."""
     kinds = State()
     pedal = State()
     shoes = State()
@@ -41,4 +47,5 @@ class InventoryFlow(StatesGroup):
 
 
 class ParkInput(StatesGroup):
+    """Ввод новой единицы парка одной строкой."""
     line = State()  # data: kind

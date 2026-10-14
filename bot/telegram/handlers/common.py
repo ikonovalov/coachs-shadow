@@ -30,6 +30,7 @@ CLOSED_TEXT = "Меню закрыто. Чтобы открыть снова —
 async def cmd_start_link(
     message: Message, command: CommandObject, session: AsyncSession, user: User, state: FSMContext
 ) -> None:
+    """`/start` с диплинком: `trainer_<токен>` активирует приглашение, `inv_<id>` открывает заказ инвентаря."""
     arg = command.args or ""
     if arg.startswith("trainer_"):
         await RoleService(session).redeem_invite(arg[len("trainer_"):], user, utcnow())
@@ -46,16 +47,19 @@ async def cmd_start_link(
 
 @router.message(CommandStart(), F.chat.type == "private")
 async def cmd_start(message: Message, user: User) -> None:
+    """`/start` — приветствие и главное меню по роли."""
     await message.answer(f"Привет, {user.name}! Я бот велоклуба.\n{MENU_TITLE}", reply_markup=main_menu(user.role))
 
 
 @router.message(Command("whoami"))
 async def cmd_whoami(message: Message) -> None:
+    """`/whoami` — показывает Telegram ID (работает в любом чате)."""
     await message.answer(f"Ваш Telegram ID: {message.from_user.id}")
 
 
 @router.callback_query(F.data == MENU_BACK, F.message.chat.type == "private")
 async def on_menu_back(cb: CallbackQuery, user: User, state: FSMContext) -> None:
+    """Возврат в главное меню; сбрасывает незавершённую форму."""
     await state.clear()
     await safe_edit(cb.message, MENU_TITLE, reply_markup=main_menu(user.role))
     await cb.answer()
@@ -63,6 +67,7 @@ async def on_menu_back(cb: CallbackQuery, user: User, state: FSMContext) -> None
 
 @router.callback_query(F.data == MENU_CLOSE, F.message.chat.type == "private")
 async def on_menu_close(cb: CallbackQuery, state: FSMContext) -> None:
+    """Закрывает меню: удаляет сообщение, а если нельзя — заменяет текстом."""
     await state.clear()
     try:
         await cb.message.delete()
@@ -73,6 +78,7 @@ async def on_menu_close(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == MENU_SCHEDULE, F.message.chat.type == "private")
 async def on_menu_schedule(cb: CallbackQuery, session: AsyncSession, messenger: Messenger, state: FSMContext) -> None:
+    """Пункт «Расписание»."""
     await state.clear()
     await send_schedule(cb.message, session, messenger)
     await cb.answer()
@@ -80,6 +86,7 @@ async def on_menu_schedule(cb: CallbackQuery, session: AsyncSession, messenger: 
 
 @router.callback_query(F.data == MENU_MY, F.message.chat.type == "private")
 async def on_menu_my(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """Пункт «Мои записи»."""
     await state.clear()
     await send_my(cb.message, session, user)
     await cb.answer()
@@ -87,6 +94,7 @@ async def on_menu_my(cb: CallbackQuery, session: AsyncSession, user: User, state
 
 @router.callback_query(F.data == MENU_PROFILE, F.message.chat.type == "private")
 async def on_menu_profile(cb: CallbackQuery, user: User, state: FSMContext) -> None:
+    """Пункт «Профиль»."""
     await state.clear()
     await send_profile(cb.message, user)
     await cb.answer()
@@ -94,6 +102,7 @@ async def on_menu_profile(cb: CallbackQuery, user: User, state: FSMContext) -> N
 
 @router.callback_query(F.data == MENU_TRAINER, F.message.chat.type == "private")
 async def on_menu_trainer(cb: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    """Пункт «Тренер»: роль проверяется на сервере, кнопка могла устареть."""
     await ensure_trainer(session, user)  # роль проверяется на сервере: кнопка могла устареть
     await state.clear()
     await safe_edit(cb.message, "Меню тренера", reply_markup=TRAINER_MENU)
@@ -102,6 +111,7 @@ async def on_menu_trainer(cb: CallbackQuery, session: AsyncSession, user: User, 
 
 @router.callback_query(F.data == MENU_ADMIN, F.message.chat.type == "private")
 async def on_menu_admin(cb: CallbackQuery, user: User, state: FSMContext) -> None:
+    """Пункт «Админ» (только админ)."""
     require_admin(user)
     await state.clear()
     await safe_edit(cb.message, "Меню администратора", reply_markup=ADMIN_MENU)
@@ -110,4 +120,5 @@ async def on_menu_admin(cb: CallbackQuery, user: User, state: FSMContext) -> Non
 
 @router.callback_query(F.data.startswith("menu:"))
 async def on_menu_stale(cb: CallbackQuery) -> None:
+    """Catch-all `menu:`: кнопка устарела."""
     await cb.answer()

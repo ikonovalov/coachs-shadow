@@ -34,6 +34,7 @@ TEXT = (F.text, ~F.text.startswith("/"))
 
 @router.callback_query(F.data.in_({"tr:new:series", "tr:new:one"}))
 async def on_new(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Старт создания серии или разовой тренировки: первым шагом выбирается тип."""
     await ensure_trainer(session, user)
     await state.clear()
     await state.update_data(one_off=cb.data.endswith(":one"), level_ids=[])
@@ -44,6 +45,7 @@ async def on_new(cb: CallbackQuery, state: FSMContext, session: AsyncSession, us
 
 @router.callback_query(NewTraining.kind, F.data.startswith("nf:kind:"))
 async def on_kind(cb: CallbackQuery, state: FSMContext) -> None:
+    """Шаг «тип»: сохраняет вид тренировки и спрашивает место."""
     await state.update_data(kind=parse_kind(cb.data.split(":")[2]))
     await state.set_state(NewTraining.place)
     await safe_edit(cb.message, "Где проходит тренировка? Напишите место.", reply_markup=markup(CANCEL_ROW))
@@ -52,6 +54,7 @@ async def on_kind(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(NewTraining.place, *TEXT)
 async def on_place(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Шаг «место»: сохраняет место и предлагает отметить уровни."""
     place = parse_place(message.text)
     await state.update_data(place=place)
     await state.set_state(NewTraining.levels)
@@ -71,6 +74,7 @@ async def _levels_markup(session: AsyncSession, user: User, selected: list[int])
 
 @router.callback_query(NewTraining.levels, F.data.startswith("nf:lvl:"))
 async def on_level_toggle(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Отмечает или снимает уровень; доступны только уровни чатов тренера."""
     level_id = int(cb.data.split(":")[2])
     allowed = {lvl.id for lvl in await ScheduleService(session).allowed_levels(user)}
     if level_id not in allowed:
@@ -84,6 +88,7 @@ async def on_level_toggle(cb: CallbackQuery, state: FSMContext, session: AsyncSe
 
 @router.callback_query(NewTraining.levels, F.data == "nf:lvldone")
 async def on_levels_done(cb: CallbackQuery, state: FSMContext) -> None:
+    """Шаг «уровни» завершён: разовой тренировке нужна дата, серии — дни недели."""
     data = await state.get_data()
     if not data.get("level_ids"):
         await cb.answer("Выберите хотя бы один уровень", show_alert=True)
@@ -99,6 +104,7 @@ async def on_levels_done(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(NewTraining.weekdays, *TEXT)
 async def on_weekdays(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    """Шаг «дни недели» (серия): сохраняет дни, дата начала — сегодня; дальше время."""
     days = parse_weekdays(message.text)
     await state.update_data(weekdays=sorted(days), start_date=(await local_today(session)).isoformat())
     await state.set_state(NewTraining.time)
@@ -107,6 +113,7 @@ async def on_weekdays(message: Message, state: FSMContext, session: AsyncSession
 
 @router.message(NewTraining.date, *TEXT)
 async def on_date(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    """Шаг «дата» (разовая): сохраняет дату и спрашивает время."""
     day = parse_date(message.text, await local_today(session))
     await state.update_data(weekdays=[], start_date=day.isoformat())
     await state.set_state(NewTraining.time)
@@ -115,6 +122,7 @@ async def on_date(message: Message, state: FSMContext, session: AsyncSession) ->
 
 @router.message(NewTraining.time, *TEXT)
 async def on_time(message: Message, state: FSMContext) -> None:
+    """Шаг «время начала»: разовой тренировке дальше нужен лимит, серии — дата окончания."""
     await state.update_data(start_time=parse_time(message.text).strftime("%H:%M"))
     if (await state.get_data())["one_off"]:
         await state.set_state(NewTraining.capacity)
@@ -126,6 +134,7 @@ async def on_time(message: Message, state: FSMContext) -> None:
 
 @router.message(NewTraining.end_date, *TEXT)
 async def on_end_date(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    """Шаг «дата окончания серии» (или «-» без окончания)."""
     end = parse_optional_date(message.text, await local_today(session))
     await state.update_data(end_date=end.isoformat() if end else None)
     await state.set_state(NewTraining.capacity)
@@ -134,6 +143,7 @@ async def on_end_date(message: Message, state: FSMContext, session: AsyncSession
 
 @router.message(NewTraining.capacity, *TEXT)
 async def on_capacity(message: Message, state: FSMContext) -> None:
+    """Шаг «лимит мест» (или «-» без лимита)."""
     await state.update_data(capacity=parse_capacity(message.text))
     await state.set_state(NewTraining.description)
     await message.answer("Описание (или «-»):")
@@ -141,6 +151,7 @@ async def on_capacity(message: Message, state: FSMContext) -> None:
 
 @router.message(NewTraining.description, *TEXT)
 async def on_description(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    """Шаг «описание»: показывает сводку для подтверждения."""
     text = message.text.strip()
     await state.update_data(description="" if text in ("-", "—") else text)
     data = await state.get_data()
@@ -156,6 +167,7 @@ async def on_description(message: Message, state: FSMContext, session: AsyncSess
 
 @router.callback_query(NewTraining.confirm, F.data == "nf:ok")
 async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Подтверждение: создаёт серию через сервис (права проверяет он). При ошибке форма возвращается."""
     data = await take_form(state, NewTraining.confirm)  # до сервиса: двойное нажатие создаст одну серию
     if data is None:
         await cb.answer()
@@ -175,6 +187,7 @@ async def on_confirm(cb: CallbackQuery, state: FSMContext, session: AsyncSession
 
 @router.callback_query(F.data == "nf:no")
 async def on_cancel_form(cb: CallbackQuery, state: FSMContext) -> None:
+    """Отмена формы создания тренировки."""
     await state.clear()
     await safe_edit(cb.message, "Отменено", reply_markup=markup([("⬅️ Меню", "tr:menu")]))
     await cb.answer()
@@ -182,4 +195,5 @@ async def on_cancel_form(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("nf:"))
 async def on_stale(cb: CallbackQuery) -> None:
+    """Catch-all `nf:`: форма устарела, предлагает начать заново."""
     await cb.answer("Форма устарела. Начните заново: /trainer", show_alert=True)

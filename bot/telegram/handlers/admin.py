@@ -32,6 +32,7 @@ SETTING_LABELS = {
 
 @router.message(Command("add_level"), F.chat.type == "private")
 async def cmd_add_level(message: Message, command: CommandObject, session: AsyncSession, user: User) -> None:
+    """`/add_level Название` — добавляет уровень (админ)."""
     if not command.args:
         raise InvalidAction("Использование: /add_level Название уровня")
     level = await ScheduleService(session).add_level(user, command.args)
@@ -40,6 +41,7 @@ async def cmd_add_level(message: Message, command: CommandObject, session: Async
 
 @router.message(Command("delete_level"), F.chat.type == "private")
 async def cmd_delete_level(message: Message, command: CommandObject, session: AsyncSession, user: User) -> None:
+    """`/delete_level Название` — удаляет неиспользуемый уровень (админ)."""
     require_admin(user)
     if not command.args:
         raise InvalidAction("Использование: /delete_level Название уровня")
@@ -54,6 +56,7 @@ async def cmd_delete_level(message: Message, command: CommandObject, session: As
 
 @router.message(Command("admin"), F.chat.type == "private")
 async def cmd_admin(message: Message, user: User, state: FSMContext) -> None:
+    """`/admin` — меню администратора; сбрасывает незавершённую форму."""
     require_admin(user)
     await state.clear()
     await message.answer("Меню администратора", reply_markup=ADMIN_MENU)
@@ -61,6 +64,7 @@ async def cmd_admin(message: Message, user: User, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "ad:menu")
 async def on_menu(cb: CallbackQuery, user: User, state: FSMContext) -> None:
+    """Возврат в меню администратора; сбрасывает незавершённую форму."""
     require_admin(user)
     await state.clear()
     await safe_edit(cb.message, "Меню администратора", reply_markup=ADMIN_MENU)
@@ -80,6 +84,7 @@ async def _show_trainers(cb: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "ad:trainers")
 async def on_trainers(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Список тренеров: кнопка `❌ имя` снимает роль, есть кнопка назначения."""
     require_admin(user)
     await _show_trainers(cb, session)
     await cb.answer()
@@ -87,6 +92,7 @@ async def on_trainers(cb: CallbackQuery, session: AsyncSession, user: User) -> N
 
 @router.callback_query(F.data.startswith("ad:rt:"))
 async def on_revoke_trainer(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Запрос подтверждения снятия роли тренера."""
     require_admin(user)
     uid = int(cb.data.split(":")[2])
     target = await session.get(User, uid)
@@ -101,6 +107,7 @@ async def on_revoke_trainer(cb: CallbackQuery, session: AsyncSession, user: User
 
 @router.callback_query(F.data.startswith("ad:rty:"))
 async def on_revoke_trainer_confirmed(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Снимает роль тренера (права проверяет сервис) и перерисовывает список."""
     await RoleService(session).revoke_trainer(user, int(cb.data.split(":")[2]))
     await _show_trainers(cb, session)
     await cb.answer("Роль снята")
@@ -108,6 +115,7 @@ async def on_revoke_trainer_confirmed(cb: CallbackQuery, session: AsyncSession, 
 
 @router.callback_query(F.data == "ad:addt")
 async def on_add_trainer(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Запускает выбор пользователя, которого назначить тренером."""
     require_admin(user)
     await start_picker(cb, state, purpose="grant_trainer", ctx={}, prompt="Кого назначить тренером?", roles={Role.MEMBER})
 
@@ -116,6 +124,7 @@ async def on_add_trainer(cb: CallbackQuery, state: FSMContext, user: User) -> No
 async def picked_trainer(
     cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger, ctx: dict, picked_id: int
 ) -> None:
+    """Результат выбора: назначает тренером (роль админа повторно проверяет сервис)."""
     await RoleService(session).grant_trainer(user, picked_id)  # re-checks actor is admin
     await cb.message.answer(
         "Назначен. Добавьте его в чат: 💬 Чаты", reply_markup=markup([("⬅️ Меню", "ad:menu")])
@@ -135,6 +144,7 @@ async def _show_admins(cb: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "ad:admins")
 async def on_admins(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Список администраторов: кнопка `❌ имя` снимает права, есть кнопка назначения."""
     require_admin(user)
     await _show_admins(cb, session)
     await cb.answer()
@@ -142,6 +152,7 @@ async def on_admins(cb: CallbackQuery, session: AsyncSession, user: User) -> Non
 
 @router.callback_query(F.data.startswith("ad:ra:"))
 async def on_revoke_admin(cb: CallbackQuery, session: AsyncSession, user: User, admin_ids: list[int]) -> None:
+    """Запрос подтверждения снятия прав админа; админов из `.env` снять нельзя."""
     require_admin(user)
     uid = int(cb.data.split(":")[2])
     if uid in admin_ids:
@@ -160,6 +171,7 @@ async def on_revoke_admin(cb: CallbackQuery, session: AsyncSession, user: User, 
 async def on_revoke_admin_confirmed(
     cb: CallbackQuery, session: AsyncSession, user: User, admin_ids: list[int]
 ) -> None:
+    """Снимает права админа (права и админов из `.env` проверяет сервис) и перерисовывает список."""
     await RoleService(session, admin_ids).revoke_admin(user, int(cb.data.split(":")[2]))
     await _show_admins(cb, session)
     await cb.answer("Роль снята")
@@ -167,6 +179,7 @@ async def on_revoke_admin_confirmed(
 
 @router.callback_query(F.data == "ad:adda")
 async def on_add_admin(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Запускает выбор пользователя, которого назначить администратором."""
     require_admin(user)
     await start_picker(
         cb, state, purpose="grant_admin", ctx={}, prompt="Кого назначить администратором?",
@@ -178,6 +191,7 @@ async def on_add_admin(cb: CallbackQuery, state: FSMContext, user: User) -> None
 async def picked_admin(
     cb: CallbackQuery, session: AsyncSession, user: User, messenger: Messenger, ctx: dict, picked_id: int
 ) -> None:
+    """Результат выбора: назначает администратором (роль админа повторно проверяет сервис)."""
     await RoleService(session).grant_admin(user, picked_id)  # re-checks actor is admin
     await cb.message.answer("Администратор назначен ✅", reply_markup=markup([("⬅️ Меню", "ad:menu")]))
     await cb.answer("Назначен")
@@ -196,6 +210,7 @@ async def _show_levels(cb: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "ad:levels")
 async def on_levels(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Список уровней: кнопка `❌ имя` удаляет, есть кнопка добавления."""
     require_admin(user)
     await _show_levels(cb, session)
     await cb.answer()
@@ -203,6 +218,7 @@ async def on_levels(cb: CallbackQuery, session: AsyncSession, user: User) -> Non
 
 @router.callback_query(F.data.startswith("ad:dl:"))
 async def on_delete_level_confirm(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Запрос подтверждения удаления уровня."""
     require_admin(user)
     level = await ScheduleService(session).get_level(int(cb.data.split(":")[2]))
     await safe_edit(cb.message,
@@ -214,6 +230,7 @@ async def on_delete_level_confirm(cb: CallbackQuery, session: AsyncSession, user
 
 @router.callback_query(F.data.startswith("ad:dly:"))
 async def on_delete_level_confirmed(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Удаляет уровень (права и неиспользуемость проверяет сервис) и перерисовывает список."""
     await ScheduleService(session).delete_level(user, int(cb.data.split(":")[2]))  # re-checks admin and usage
     await _show_levels(cb, session)
     await cb.answer("Уровень удалён")
@@ -221,6 +238,7 @@ async def on_delete_level_confirmed(cb: CallbackQuery, session: AsyncSession, us
 
 @router.callback_query(F.data == "ad:addlvl")
 async def on_add_level(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Просит ввести название нового уровня (состояние `AdminInput.value`)."""
     require_admin(user)
     await state.clear()
     await state.set_state(AdminInput.value)
@@ -231,6 +249,7 @@ async def on_add_level(cb: CallbackQuery, state: FSMContext, user: User) -> None
 
 @router.callback_query(F.data == ADD_LEVEL_CANCEL)
 async def on_add_level_cancel(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Отмена ввода названия уровня: возврат в меню администратора."""
     require_admin(user)
     await state.clear()
     await safe_edit(cb.message, "Меню администратора", reply_markup=ADMIN_MENU)
@@ -241,6 +260,7 @@ async def on_add_level_cancel(cb: CallbackQuery, state: FSMContext, user: User) 
 
 @router.callback_query(F.data == "ad:invite")
 async def on_invite(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Создаёт одноразовую ссылку-приглашение тренера на 24 часа."""
     invite = await RoleService(session).create_invite(user, utcnow())
     username = (await cb.bot.me()).username
     await cb.message.answer(
@@ -254,6 +274,7 @@ async def on_invite(cb: CallbackQuery, session: AsyncSession, user: User) -> Non
 
 @router.callback_query(F.data == "ad:settings")
 async def on_settings(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+    """Список настроек клуба с текущими значениями; нажатие открывает изменение."""
     require_admin(user)
     rows = []
     for key, label in SETTING_LABELS.items():
@@ -265,6 +286,7 @@ async def on_settings(cb: CallbackQuery, session: AsyncSession, user: User) -> N
 
 @router.callback_query(F.data.startswith("ad:set:"))
 async def on_setting(cb: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Просит ввести новое значение выбранной настройки (состояние `AdminInput.value`)."""
     require_admin(user)
     key = cb.data.split(":", 2)[2]
     if key not in SETTING_LABELS:
@@ -278,6 +300,8 @@ async def on_setting(cb: CallbackQuery, state: FSMContext, user: User) -> None:
 
 @router.message(AdminInput.value, F.text, ~F.text.startswith("/"), F.chat.type == "private")
 async def on_admin_input(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+    """Текст в состоянии `AdminInput.value`: добавляет уровень или сохраняет настройку.
+    При ошибке ввода форма возвращается, ввод можно повторить."""
     require_admin(user)
     data = await take_form(state, AdminInput.value)  # два сообщения подряд: значение применится один раз
     if data is None:
@@ -300,4 +324,5 @@ async def on_admin_input(message: Message, state: FSMContext, session: AsyncSess
 
 @router.callback_query(F.data.startswith("ad:"))
 async def on_stale(cb: CallbackQuery) -> None:
+    """Catch-all `ad:`: устаревшая кнопка просто гасит индикатор загрузки."""
     await cb.answer()

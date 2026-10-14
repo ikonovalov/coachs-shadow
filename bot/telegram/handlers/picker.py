@@ -25,6 +25,7 @@ PICK_HANDLERS: dict[str, PickHandler] = {}
 
 
 def on_pick(purpose: str):
+    """Декоратор: регистрирует обработчик результата выбора пользователя для `purpose`."""
     def decorator(func: PickHandler) -> PickHandler:
         PICK_HANDLERS[purpose] = func
         return func
@@ -41,6 +42,8 @@ async def start_picker(
     prompt: str,
     roles: set[str] | None = None,
 ) -> None:
+    """Запускает диалог выбора пользователя по части имени. `purpose` и `ctx` попадают в обработчик
+    результата, `roles` ограничивает список. Выбор — только подсказка: права проверяет сервис в обработчике."""
     await state.clear()
     await state.set_state(Picker.query)
     await state.update_data(purpose=purpose, ctx=ctx, roles=sorted(roles) if roles else None)
@@ -52,6 +55,7 @@ async def start_picker(
 
 @router.message(Picker.query, F.text, ~F.text.startswith("/"))
 async def on_query(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    """Поиск пользователей по введённому тексту."""
     data = await state.get_data()
     roles = set(data["roles"]) if data.get("roles") else None
     found = await UserService(session).search(message.text, roles=roles)
@@ -65,6 +69,7 @@ async def on_query(message: Message, state: FSMContext, session: AsyncSession) -
 
 @router.callback_query(Picker.query, F.data == "pk:cancel")
 async def on_pick_cancel(cb: CallbackQuery, state: FSMContext) -> None:
+    """Отмена выбора."""
     await state.clear()
     await safe_edit(cb.message, "Отменено")
     await cb.answer()
@@ -74,6 +79,7 @@ async def on_pick_cancel(cb: CallbackQuery, state: FSMContext) -> None:
 async def on_picked(
     cb: CallbackQuery, state: FSMContext, session: AsyncSession, user: User, messenger: Messenger
 ) -> None:
+    """Выбран пользователь: передаёт его зарегистрированному обработчику. При ошибке выбор возвращается."""
     data = await take_form(state, Picker.query)  # двойное нажатие: второй раз данных уже нет
     if data is None:
         await cb.answer()
@@ -92,4 +98,5 @@ async def on_picked(
 
 @router.callback_query(F.data.startswith("pk:"))
 async def on_stale_pick(cb: CallbackQuery) -> None:
+    """Catch-all `pk:`: кнопка устарела."""
     await cb.answer()

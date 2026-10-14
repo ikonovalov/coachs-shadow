@@ -7,10 +7,12 @@ log = logging.getLogger(__name__)
 
 
 class AiogramMembership:
+    """Реализация `MembershipChecker` поверх aiogram."""
     def __init__(self, bot: Bot) -> None:
         self.bot = bot
 
     async def is_member(self, chat_id: int, user_id: int) -> bool:
+        """Состоит ли пользователь в чате. Недоступный чат или сбой API дают False, а не исключение."""
         try:
             member = await self.bot.get_chat_member(chat_id, user_id)
         except TelegramAPIError:

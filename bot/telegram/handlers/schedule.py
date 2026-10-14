@@ -26,9 +26,11 @@ async def send_schedule(message: Message, session: AsyncSession, messenger: Mess
 
 @router.message(Command("schedule"), F.chat.type == "private")
 async def cmd_schedule(message: Message, session: AsyncSession, messenger: Messenger) -> None:
+    """`/schedule` в личке — ближайшие тренировки с кнопками записи."""
     await send_schedule(message, session, messenger)
 
 
 @router.callback_query(F.data == "noop")
 async def on_noop(callback: CallbackQuery) -> None:
+    """Кнопка без действия (например, неактивная запись): только гасит индикатор загрузки."""
     await callback.answer()
