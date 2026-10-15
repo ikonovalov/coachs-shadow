@@ -1,0 +1,7 @@
+[Unit]
+Description=Coach's Shadow: бэкап БД
+
+[Service]
+Type=oneshot
+User=coachbot
+ExecStart=/opt/coachs-shadow/deploy/backup.sh

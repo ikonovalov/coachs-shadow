@@ -1,0 +1,23 @@
+[Unit]
+Description=Coach's Shadow bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=coachbot
+WorkingDirectory=/opt/coachs-shadow
+EnvironmentFile=/opt/coachs-shadow/.env
+ExecStartPre=/opt/coachs-shadow/.venv/bin/alembic upgrade head
+ExecStart=/opt/coachs-shadow/.venv/bin/python -m bot.main
+Restart=always
+RestartSec=5
+# не уходить в бесконечный цикл при постоянной ошибке конфигурации
+StartLimitIntervalSec=300
+StartLimitBurst=10
+# мягкая остановка: aiogram получает SIGTERM и корректно закрывает сессию
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -402,6 +402,24 @@ pysqlite выполняет SELECT вне транзакции, поэтому �
 Схема БД создаётся и обновляется через `alembic upgrade head`; после изменения моделей —
 `alembic revision --autogenerate`.
 
+### Развёртывание на VM (systemd)
+
+Файлы в `deploy/`: `coachs-shadow.service` (бот: `Restart=always`, перед стартом `alembic upgrade head`,
+`.env` через `EnvironmentFile`), `coachs-shadow-backup.service` + `.timer` и `backup.sh` (ежедневный
+`sqlite3 .backup`, хранится 14 копий). Пути в юнитах — `/opt/coachs-shadow`, пользователь `coachbot`;
+при других значениях поправьте файлы.
+
+```bash
+sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now coachs-shadow coachs-shadow-backup.timer
+journalctl -u coachs-shadow -f
+```
+
+Запускайте ровно один экземпляр: два процесса с одним токеном конфликтуют на `getUpdates`, а планировщики
+дублируют посты. Файл БД (`DATABASE_URL`) должен лежать на постоянном диске; относительный путь
+считается от `WorkingDirectory`. Очередь задач хранится в БД, поэтому рестарт её не теряет (§9).
+
 ## 11. Тестирование
 
 - `tests/` повторяет структуру `bot/`; сеть и токен не нужны.
